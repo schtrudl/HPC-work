@@ -33,19 +33,16 @@ void copy_image(unsigned char *image_out, const unsigned char *image_in, const s
 
         // Copy the image data in parallel
         #pragma omp for
-        for (size_t i = 0; i < size; ++i)
-        {
+        for (size_t i = 0; i < size; ++i) {
             image_out[i] = image_in[i];
         }
     }
-    
 }
 
 int main(int argc, char *argv[])
 {
 
-    if (argc < 3)
-    {
+    if (argc < 3) {
         printf("USAGE: sample input_image output_image\n");
         exit(EXIT_FAILURE);
     }
@@ -60,8 +57,7 @@ int main(int argc, char *argv[])
     int width, height, cpp;
     unsigned char *image_in = stbi_load(image_in_name, &width, &height, &cpp, COLOR_CHANNELS);
 
-    if (image_in == NULL)
-    {
+    if (image_in == NULL) {
         printf("Error reading loading image %s!\n", image_in_name);
         exit(EXIT_FAILURE);
     }
