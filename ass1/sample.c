@@ -16,7 +16,8 @@
 #define MAX_FILENAME 255
 #define SEAMS 128
 // this is to prevent formating of the OMP pragmas
-#define OMP(x) _Pragma(omp #x)
+#define OMP(x)  DO_PRAGMA(omp x)
+#define DO_PRAGMA(x) _Pragma ( #x )
 
 void copy_image(unsigned char* image_out, const unsigned char* image_in, const size_t size) {
     OMP(parallel)  //
@@ -66,9 +67,10 @@ size_t find_seam(const unsigned char* commulative, const size_t width, const siz
     // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
     // shrani jih v seam (wxs) in vrne kok seamov je naredil
     // lahko jih je manj bo pa vsaj en
+    return n_seams_to_remove;
 }
 
-void remove_seam(unsigned char* image_in, const size_t width, const size_t height, const size_t channels, const size_t n_seams, const size_t* seam, unsigned char* image_out) {
+void remove_seam(const unsigned char* image_in, const size_t width, const size_t height, const size_t channels, const size_t n_seams, const size_t* seam, unsigned char* image_out) {
     // odstrani stolpce podane v seams iz slike in shrani v image_out
     // TODO(perf): idealno bi bilo da bi vse delali in place
     copy_image(image_out, image_in, width * height * channels * sizeof(unsigned char));
@@ -78,6 +80,7 @@ size_t min(size_t a, size_t b) {
     return (a < b) ? a : b;
 }
 
+// TODO(perf): edit image in-place
 void main_algo(const unsigned char* image_in, size_t width, const size_t height, const size_t channels, unsigned char* image_out) {
     const size_t datasize = width * height * sizeof(unsigned char);
     // TODO: should we move alloc outside of timing?
