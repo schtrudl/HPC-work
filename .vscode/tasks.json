@@ -1,0 +1,18 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build sample",
+            "type": "shell",
+            "command": "rm -rf sample && gcc -g -O3 -lm -lnuma --openmp sample.c -o sample",
+            "options": {
+                "cwd": "${workspaceFolder}/ass1"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        }
+    ]
+}

@@ -1,0 +1,5 @@
+c:
+    gcc -g -O3 -lm -lnuma --openmp sample.c -o sample
+
+r:
+    ./sample valve.png valve-out.png
