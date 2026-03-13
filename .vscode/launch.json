@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
+            // this is for local not for remote debugging on login node!!!
             "type": "lldb",
             "request": "launch",
             "name": "poženi ass1",
@@ -14,7 +15,10 @@
                 "valve-out.png"
             ],
             "cwd": "ass1",
-            "preLaunchTask": "build sample"
+            "preLaunchTask": "build sample",
+            "env": {
+                "OMP_NUM_THREADS": "2"
+            }
         }
     ]
 }
