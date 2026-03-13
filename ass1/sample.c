@@ -16,8 +16,8 @@
 #define MAX_FILENAME 255
 #define SEAMS 128
 // this is to prevent formating of the OMP pragmas
-#define OMP(x)  DO_PRAGMA(omp x)
-#define DO_PRAGMA(x) _Pragma ( #x )
+#define OMP(x) DO_PRAGMA(omp x)
+#define DO_PRAGMA(x) _Pragma(#x)
 
 void copy_image(unsigned char* image_out, const unsigned char* image_in, const size_t size) {
     OMP(parallel)  //
@@ -53,17 +53,17 @@ void compute_energy(const unsigned char* image_in, const size_t width, const siz
     }
 }
 
-void compute_commulative(const unsigned char* energy, const size_t width, const size_t height, const size_t channels, unsigned char* commulative) {
+void compute_cumulative(const unsigned char* energy, const size_t width, const size_t height, const size_t channels, unsigned char* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     for (size_t row = 0; row < height; row++) {
         for (size_t col = 0; col < width; col++) {
             size_t idx = (row * width + col);
-            commulative[idx] = energy[idx];
+            cumulative[idx] = energy[idx];
         }
     }
 }
 
-size_t find_seam(const unsigned char* commulative, const size_t width, const size_t height, size_t n_seams_to_remove, size_t* seam) {
+size_t find_seam(const unsigned char* cumulative, const size_t width, const size_t height, size_t n_seams_to_remove, size_t* seam) {
     // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
     // shrani jih v seam (wxs) in vrne kok seamov je naredil
     // lahko jih je manj bo pa vsaj en
@@ -85,21 +85,21 @@ void main_algo(const unsigned char* image_in, size_t width, const size_t height,
     const size_t datasize = width * height * sizeof(unsigned char);
     // TODO: should we move alloc outside of timing?
     unsigned char* energy_buffer = (unsigned char*)malloc(datasize);
-    unsigned char* commulative = (unsigned char*)malloc(datasize);
+    unsigned char* cumulative = (unsigned char*)malloc(datasize);
     // koliko seamov bomo obdelali na enkrat
     size_t n_seams_to_remove = SEAMS;
     size_t n_seams_per_round = 1;  // po definiciji problema naj bi bila kle 1
     size_t* seam = (size_t*)malloc(n_seams_per_round * sizeof(size_t));
     while (n_seams_to_remove > 0) {
         compute_energy(image_in, width, height, channels, energy_buffer);
-        compute_commulative(energy_buffer, width, height, channels, commulative);
-        size_t s = find_seam(commulative, width, height, min(n_seams_per_round, n_seams_to_remove), seam);
+        compute_cumulative(energy_buffer, width, height, channels, cumulative);
+        size_t s = find_seam(cumulative, width, height, min(n_seams_per_round, n_seams_to_remove), seam);
         remove_seam(image_in, width, height, channels, s, seam, image_out);
         n_seams_to_remove -= s;
         width -= s;
     }
     free(energy_buffer);
-    free(commulative);
+    free(cumulative);
     free(seam);
 }
 
