@@ -62,25 +62,39 @@ void compute_commulative(const unsigned char* energy, const size_t width, const 
     }
 }
 
-void find_seam(const unsigned char* commulative, const size_t width, const size_t height, size_t n_seams_to_remove, size_t* seam) {
+size_t find_seam(const unsigned char* commulative, const size_t width, const size_t height, size_t n_seams_to_remove, size_t* seam) {
     // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
-    // shrani jih v seam (wxs)
+    // shrani jih v seam (wxs) in vrne kok seamov je naredil
+    // lahko jih je manj bo pa vsaj en
 }
 
-void remove_seam(const unsigned char* image_in, const size_t width, const size_t height, const size_t channels, const size_t* seam, unsigned char* image_out) {
+void remove_seam(unsigned char* image_in, const size_t width, const size_t height, const size_t channels, const size_t n_seams, const size_t* seam, unsigned char* image_out) {
     // odstrani stolpce podane v seams iz slike in shrani v image_out
+    // TODO(perf): idealno bi bilo da bi vse delali in place
+    copy_image(image_out, image_in, width * height * channels * sizeof(unsigned char));
 }
 
-void main_algo(const unsigned char* image_in, const size_t width, const size_t height, const size_t channels, unsigned char* image_out) {
+size_t min(size_t a, size_t b) {
+    return (a < b) ? a : b;
+}
+
+void main_algo(const unsigned char* image_in, size_t width, const size_t height, const size_t channels, unsigned char* image_out) {
     const size_t datasize = width * height * sizeof(unsigned char);
+    // TODO: should we move alloc outside of timing?
     unsigned char* energy_buffer = (unsigned char*)malloc(datasize);
     unsigned char* commulative = (unsigned char*)malloc(datasize);
-    compute_energy(image_in, width, height, channels, energy_buffer);
-    compute_commulative(energy_buffer, width, height, channels, commulative);
-    size_t n_seams = 1;
-    size_t* seam = (size_t*)malloc(n_seams * sizeof(size_t));
-    find_seam(commulative, width, height, n_seams, seam);
-    remove_seam(image_in, width, height, channels, seam, image_out);
+    // koliko seamov bomo obdelali na enkrat
+    size_t n_seams_to_remove = SEAMS;
+    size_t n_seams_per_round = 1;  // po definiciji problema naj bi bila kle 1
+    size_t* seam = (size_t*)malloc(n_seams_per_round * sizeof(size_t));
+    while (n_seams_to_remove > 0) {
+        compute_energy(image_in, width, height, channels, energy_buffer);
+        compute_commulative(energy_buffer, width, height, channels, commulative);
+        size_t s = find_seam(commulative, width, height, min(n_seams_per_round, n_seams_to_remove), seam);
+        remove_seam(image_in, width, height, channels, s, seam, image_out);
+        n_seams_to_remove -= s;
+        width -= s;
+    }
     free(energy_buffer);
     free(commulative);
     free(seam);
@@ -99,15 +113,18 @@ int main(int argc, char* argv[]) {
     snprintf(image_out_name, MAX_FILENAME, "%s", argv[2]);
 
     // Load image from file and allocate space for the output image
-    int width, height, cpp;
-    unsigned char* image_in = stbi_load(image_in_name, &width, &height, &cpp, COLOR_CHANNELS);
+    int orig_width, orig_height, cpp;
+    unsigned char* image_in = stbi_load(image_in_name, &orig_width, &orig_height, &cpp, COLOR_CHANNELS);
 
     if (image_in == NULL) {
         printf("Error reading loading image %s!\n", image_in_name);
         exit(EXIT_FAILURE);
     }
-    printf("Loaded image %s of size %dx%d with %d channels.\n", image_in_name, width, height, cpp);
-    const size_t datasize = width * height * cpp * sizeof(unsigned char);
+    size_t width = (size_t)orig_width;
+    size_t height = (size_t)orig_height;
+    size_t channels = (size_t)cpp;
+    printf("Loaded image %s of size %zux%zu with %zu channels.\n", image_in_name, width, height, channels);
+    const size_t datasize = width * height * channels * sizeof(unsigned char);
     unsigned char* image_out = (unsigned char*)malloc(datasize);
     if (image_out == NULL) {
         printf("Error: Failed to allocate memory for output image!\n");
@@ -117,7 +134,7 @@ int main(int argc, char* argv[]) {
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, (size_t)width, (size_t)height, (size_t)cpp, image_out);
+    main_algo(image_in, width, height, channels, image_out);
     double stop = omp_get_wtime();
     printf("Time to copy: %f s\n", stop - start);
 
@@ -134,12 +151,13 @@ int main(int argc, char* argv[]) {
     }
     file_type++;  // skip the dot
 
+    // TODO: v resnici pravilno obdelamo samo png zaradi stride
     if (!strcmp(file_type, "png"))
-        stbi_write_png(image_out_name, width, height, cpp, image_out, width * cpp);
+        stbi_write_png(image_out_name, (int)width, (int)height, (int)channels, image_out, (orig_width * (int)channels));
     else if (!strcmp(file_type, "jpg"))
-        stbi_write_jpg(image_out_name, width, height, cpp, image_out, 100);
+        stbi_write_jpg(image_out_name, (int)width, (int)height, (int)channels, image_out, 100);
     else if (!strcmp(file_type, "bmp"))
-        stbi_write_bmp(image_out_name, width, height, cpp, image_out);
+        stbi_write_bmp(image_out_name, (int)width, (int)height, (int)channels, image_out);
     else
         printf("Error: Unknown image format %s! Only png, jpg, or bmp supported.\n", file_type);
 
