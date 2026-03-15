@@ -133,7 +133,6 @@ inline usize min(usize a, usize b) {
     return (a < b) ? a : b;
 }
 
-// TODO(perf): edit image in-place
 void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u8* cumulative) {
     usize stride = *width;
     // koliko seamov bomo obdelali na enkrat
