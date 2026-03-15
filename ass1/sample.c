@@ -24,6 +24,7 @@
 // type aliases for better readability
 #define usize size_t
 #define u8 u_int8_t
+#define f64 double
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -56,15 +57,32 @@ void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
 
 void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, u8* energy) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
+    OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
+        usize row_minus_1 = (row == 0) ? 0 : row - 1;
+        usize row_plus_1 = (row == height - 1) ? height - 1 : row + 1;
         for (usize col = 0; col < width; col++) {
-            // TODO(perf): can we always assume 3 channels? anyway lets hope that compiler will unroll the loop
-            size_t energy_sum = 0;  // TODO: this type is probably wrong
-            Pixel p = image[row * stride + col];
-            energy_sum += p.r;
-            energy_sum += p.g;
-            energy_sum += p.b;
-            energy[row * width + col] = energy_sum / 3;
+            usize col_minus_1 = (col == 0) ? 0 : col - 1;
+            usize col_plus_1 = (col == width - 1) ? width - 1 : col + 1;
+            //Pixel p = image[row * stride + col];
+            /*
+If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
+
+G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 ) + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+
+G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 ) 
+            */
+            // TODO(perf): optimize this for cache
+            f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
+            f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
+
+            f64 Gxg = -image[row_minus_1 * stride + col_minus_1].g - 2 * image[row * stride + col_minus_1].g - image[row_plus_1 * stride + col_minus_1].g + image[row_minus_1 * stride + col_plus_1].g + 2 * image[row * stride + col_plus_1].g + image[row_plus_1 * stride + col_plus_1].g;
+            f64 Gyg = image[row_minus_1 * stride + col_minus_1].g + 2 * image[row_minus_1 * stride + col].g + image[row_minus_1 * stride + col_plus_1].g - image[row_plus_1 * stride + col_minus_1].g - 2 * image[row_plus_1 * stride + col].g - image[row_plus_1 * stride + col_plus_1].g;
+
+            f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
+            f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
+
+            energy[row * width + col] = (u8)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
         }
     }
 }
@@ -111,7 +129,7 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-usize min(usize a, usize b) {
+inline usize min(usize a, usize b) {
     return (a < b) ? a : b;
 }
 
