@@ -12,14 +12,28 @@
 #include "stb_image_write.h"
 
 // Use 0 to retain the original number of color channels
-#define COLOR_CHANNELS 0
+#define COLOR_CHANNELS 3  // XXX: can we assume this
 #define MAX_FILENAME 255
 #define SEAMS 128
 // this is to prevent formating of the OMP pragmas
 #define OMP(x) DO_PRAGMA(omp x)
 #define DO_PRAGMA(x) _Pragma(#x)
 
-void copy_image(unsigned char* image_out, const unsigned char* image_in, const size_t size) {
+// typed malloc
+#define box(n, type) (type*)malloc((n) * sizeof(type))
+// type aliases for better readability
+#define usize size_t
+#define u8 u_int8_t
+
+// this struct makes it easier to work with the image data
+// as c indexing automatically takes into account sizeof(Pixel)
+typedef struct {
+    u8 r;
+    u8 g;
+    u8 b;
+} Pixel;
+
+void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
     OMP(parallel)  //
     {
         // Print thread, CPU, and NUMA node information
@@ -34,72 +48,88 @@ void copy_image(unsigned char* image_out, const unsigned char* image_in, const s
 
         // Copy the image data in parallel
         OMP(for)  //
-        for (size_t i = 0; i < size; ++i) {
+        for (usize i = 0; i < size; ++i) {
             image_out[i] = image_in[i];
         }
     }
 }
 
-void compute_energy(const unsigned char* image_in, const size_t width, const size_t height, const size_t channels, unsigned char* energy) {
+void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, u8* energy) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
-    for (size_t row = 0; row < height; row++) {
-        for (size_t col = 0; col < width; col++) {
-            for (size_t channel = 0; channel < channels; channel++) {
-                size_t idx = (row * width + col);
-                size_t image_idx = idx * channels + channel;
-                energy[idx] = image_in[image_idx];
-            }
+    for (usize row = 0; row < height; row++) {
+        for (usize col = 0; col < width; col++) {
+            // TODO(perf): can we always assume 3 channels? anyway lets hope that compiler will unroll the loop
+            size_t energy_sum = 0;  // TODO: this type is probably wrong
+            Pixel p = image[row * stride + col];
+            energy_sum += p.r;
+            energy_sum += p.g;
+            energy_sum += p.b;
+            energy[row * width + col] = energy_sum / 3;
         }
     }
 }
 
-void compute_cumulative(const unsigned char* energy, const size_t width, const size_t height, const size_t channels, unsigned char* cumulative) {
+void compute_cumulative(const u8* energy, const usize width, const usize height, u8* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
-    for (size_t row = 0; row < height; row++) {
-        for (size_t col = 0; col < width; col++) {
-            size_t idx = (row * width + col);
+    for (usize row = 0; row < height; row++) {
+        for (usize col = 0; col < width; col++) {
+            usize idx = (row * width + col);
             cumulative[idx] = energy[idx];
         }
     }
 }
 
-size_t find_seam(const unsigned char* cumulative, const size_t width, const size_t height, size_t n_seams_to_remove, size_t* seam) {
-    // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
-    // shrani jih v seam (wxs) in vrne kok seamov je naredil
-    // lahko jih je manj bo pa vsaj en
-    return n_seams_to_remove;
+// sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
+// shrani jih v seam (height * n_seams_to_remove) in vrne kok seamov je naredil
+// lahko jih je manj bo pa vsaj en
+size_t find_seam(const u8* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
+    // TODO: actual impl, currently we just remove first and middle
+
+    for (usize i = 0; i < height; i++) {
+        // needs to be ordered for remove_seam to work correctly (and efficiently)
+        seam[i * n_seams_to_remove + 0] = 0;
+        seam[i * n_seams_to_remove + 1] = width / 2;
+    }
+    return 2;
 }
 
-void remove_seam(const unsigned char* image_in, const size_t width, const size_t height, const size_t channels, const size_t n_seams, const size_t* seam, unsigned char* image_out) {
+void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
+    if (n_seams == 0) return;
     // odstrani stolpce podane v seams iz slike in shrani v image_out
-    // TODO(perf): idealno bi bilo da bi vse delali in place
-    copy_image(image_out, image_in, width * height * channels * sizeof(unsigned char));
+    // OMP(parallel for) // TODO(perf): paralization probably not worth for small images
+    for (usize row = 0; row < height; row++) {
+        usize s = 1;
+        // assumes ordered seams
+        for (usize col = seam[row * n_seams + 0] + 1; col < width; col++) {
+            if (s < n_seams && col == seam[row * n_seams + s]) {
+                s++;
+                continue;
+            }
+            usize idx = (row * stride + col);
+            image[idx - s] = image[idx];
+        }
+    }
 }
 
-size_t min(size_t a, size_t b) {
+usize min(usize a, usize b) {
     return (a < b) ? a : b;
 }
 
 // TODO(perf): edit image in-place
-void main_algo(const unsigned char* image_in, size_t width, const size_t height, const size_t channels, unsigned char* image_out) {
-    const size_t datasize = width * height * sizeof(unsigned char);
-    // TODO: should we move alloc outside of timing?
-    unsigned char* energy_buffer = (unsigned char*)malloc(datasize);
-    unsigned char* cumulative = (unsigned char*)malloc(datasize);
+void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u8* cumulative) {
+    usize stride = *width;
     // koliko seamov bomo obdelali na enkrat
-    size_t n_seams_to_remove = SEAMS;
-    size_t n_seams_per_round = 1;  // po definiciji problema naj bi bila kle 1
-    size_t* seam = (size_t*)malloc(n_seams_per_round * sizeof(size_t));
+    usize n_seams_to_remove = SEAMS;
+    usize n_seams_per_round = 2;  // po definiciji problema naj bi bila kle 1
+    usize* seam = box(height * n_seams_per_round, usize);  // XXX: should we move alloc outside of timing?
     while (n_seams_to_remove > 0) {
-        compute_energy(image_in, width, height, channels, energy_buffer);
-        compute_cumulative(energy_buffer, width, height, channels, cumulative);
-        size_t s = find_seam(cumulative, width, height, min(n_seams_per_round, n_seams_to_remove), seam);
-        remove_seam(image_in, width, height, channels, s, seam, image_out);
+        compute_energy(image, *width, stride, height, energy_buffer);
+        compute_cumulative(energy_buffer, *width, height, cumulative);
+        usize s = find_seam(cumulative, *width, height, min(n_seams_per_round, n_seams_to_remove), seam);
+        remove_seam(image, *width, stride, height, s, seam);
         n_seams_to_remove -= s;
-        width -= s;
+        *width -= s;
     }
-    free(energy_buffer);
-    free(cumulative);
     free(seam);
 }
 
@@ -117,29 +147,27 @@ int main(int argc, char* argv[]) {
 
     // Load image from file and allocate space for the output image
     int orig_width, orig_height, cpp;
-    unsigned char* image_in = stbi_load(image_in_name, &orig_width, &orig_height, &cpp, COLOR_CHANNELS);
+    Pixel* image_in = (Pixel*)stbi_load(image_in_name, &orig_width, &orig_height, &cpp, 3);
 
     if (image_in == NULL) {
         printf("Error reading loading image %s!\n", image_in_name);
         exit(EXIT_FAILURE);
     }
-    size_t width = (size_t)orig_width;
-    size_t height = (size_t)orig_height;
-    size_t channels = (size_t)cpp;
-    printf("Loaded image %s of size %zux%zu with %zu channels.\n", image_in_name, width, height, channels);
-    const size_t datasize = width * height * channels * sizeof(unsigned char);
-    unsigned char* image_out = (unsigned char*)malloc(datasize);
-    if (image_out == NULL) {
-        printf("Error: Failed to allocate memory for output image!\n");
-        stbi_image_free(image_in);
-        exit(EXIT_FAILURE);
-    }
+    usize width = (usize)orig_width;
+    usize height = (usize)orig_height;
+    printf("Loaded image %s of size %zux%zu.\n", image_in_name, width, height);
+
+    u8* energy_buffer = box(width * height, u8);
+    u8* cumulative = box(width * height, u8);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, width, height, channels, image_out);
+    main_algo(image_in, &width, height, energy_buffer, cumulative);
     double stop = omp_get_wtime();
     printf("Time to copy: %f s\n", stop - start);
+
+    free(energy_buffer);
+    free(cumulative);
 
     // Write the output image to file
     char image_out_name_temp[MAX_FILENAME];
@@ -149,24 +177,18 @@ int main(int argc, char* argv[]) {
     if (file_type == NULL) {
         printf("Error: No file extension found!\n");
         stbi_image_free(image_in);
-        stbi_image_free(image_out);
         exit(EXIT_FAILURE);
     }
     file_type++;  // skip the dot
 
-    // TODO: v resnici pravilno obdelamo samo png zaradi stride
+    // XXX: can we assume png
     if (!strcmp(file_type, "png"))
-        stbi_write_png(image_out_name, (int)width, (int)height, (int)channels, image_out, (orig_width * (int)channels));
-    else if (!strcmp(file_type, "jpg"))
-        stbi_write_jpg(image_out_name, (int)width, (int)height, (int)channels, image_out, 100);
-    else if (!strcmp(file_type, "bmp"))
-        stbi_write_bmp(image_out_name, (int)width, (int)height, (int)channels, image_out);
+        stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, image_in, (orig_width * COLOR_CHANNELS));
     else
         printf("Error: Unknown image format %s! Only png, jpg, or bmp supported.\n", file_type);
 
     // Release the memory
     stbi_image_free(image_in);
-    stbi_image_free(image_out);
 
     return 0;
 }
