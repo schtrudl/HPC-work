@@ -6,6 +6,27 @@
 #include <sched.h>
 #include <numa.h>
 
+#define REPORT_SUB_TIMES 1
+#ifdef REPORT_SUB_TIMES
+    #define report_time_into_var(var, name, code) \
+        do { \
+            double start = omp_get_wtime(); \
+            var = code; \
+            double stop = omp_get_wtime(); \
+            printf("Time(%s): %f s\n", name, stop - start); \
+        } while (0)
+    #define report_time(name, code) \
+        do { \
+            double start = omp_get_wtime(); \
+            code; \
+            double stop = omp_get_wtime(); \
+            printf("Time(%s): %f s\n", name, stop - start); \
+        } while (0)
+#else
+    #define report_time(name, code) code
+    #define report_time_into_var(var, name, code) var = code
+#endif
+
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
@@ -140,10 +161,11 @@ void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer
     usize n_seams_per_round = 2;  // po definiciji problema naj bi bila kle 1
     usize* seam = box(height * n_seams_per_round, usize);  // XXX: should we move alloc outside of timing?
     while (n_seams_to_remove > 0) {
-        compute_energy(image, *width, stride, height, energy_buffer);
-        compute_cumulative(energy_buffer, *width, height, cumulative);
-        usize s = find_seam(cumulative, *width, height, min(n_seams_per_round, n_seams_to_remove), seam);
-        remove_seam(image, *width, stride, height, s, seam);
+        report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
+        report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
+        usize s;
+        report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(n_seams_per_round, n_seams_to_remove), seam));
+        report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
         n_seams_to_remove -= s;
         *width -= s;
     }
@@ -181,7 +203,7 @@ int main(int argc, char* argv[]) {
     double start = omp_get_wtime();
     main_algo(image_in, &width, height, energy_buffer, cumulative);
     double stop = omp_get_wtime();
-    printf("Time to copy: %f s\n", stop - start);
+    printf("Time(full): %f s\n", stop - start);
 
     free(energy_buffer);
     free(cumulative);
