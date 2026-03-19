@@ -37,9 +37,13 @@
 #include "stb_image_write.h"
 
 // Use 0 to retain the original number of color channels
-#define COLOR_CHANNELS 3  // XXX: can we assume this
+#define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
 #define SEAMS 128
+// koliko seamov bomo obdelali na enkrat
+//
+// po definiciji problema naj bi bila kle 1
+#define SEAMS_PER_ROUND 2
 // this is to prevent formating of the OMP pragmas
 #define OMP(x) DO_PRAGMA(omp x)
 #define DO_PRAGMA(x) _Pragma(#x)
@@ -51,6 +55,7 @@
 #define u8 u_int8_t
 #define u32 u_int32_t
 #define f64 double
+#define f32 float
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -199,22 +204,18 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative) {
+void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative, usize* seam) {
     usize stride = *width;
-    // koliko seamov bomo obdelali na enkrat
     usize n_seams_to_remove = SEAMS;
-    usize n_seams_per_round = 2;  // po definiciji problema naj bi bila kle 1
-    usize* seam = box(height * n_seams_per_round, usize);  // XXX: should we move alloc outside of timing?
     while (n_seams_to_remove > 0) {
         report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
         report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
         usize s;
-        report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(n_seams_per_round, n_seams_to_remove), seam));
+        report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(SEAMS_PER_ROUND, n_seams_to_remove), seam));
         report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
         n_seams_to_remove -= s;
         *width -= s;
     }
-    free(seam);
 }
 
 int main(int argc, char* argv[]) {
@@ -243,15 +244,17 @@ int main(int argc, char* argv[]) {
 
     u8* energy_buffer = box(width * height, u8);
     u32* cumulative = box(width * height, u32);
+    usize* seam = box(height * SEAMS_PER_ROUND, usize);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, &width, height, energy_buffer, cumulative);
+    main_algo(image_in, &width, height, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
     free(energy_buffer);
     free(cumulative);
+    free(seam);
 
     // Write the output image to file
     char image_out_name_temp[MAX_FILENAME];
@@ -265,7 +268,6 @@ int main(int argc, char* argv[]) {
     }
     file_type++;  // skip the dot
 
-    // XXX: can we assume png
     if (!strcmp(file_type, "png"))
         stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, image_in, (orig_width * COLOR_CHANNELS));
     else
