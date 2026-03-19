@@ -45,6 +45,7 @@
 // type aliases for better readability
 #define usize size_t
 #define u8 u_int8_t
+#define u32 u_int32_t
 #define f64 double
 
 // this struct makes it easier to work with the image data
@@ -54,6 +55,22 @@ typedef struct {
     u8 g;
     u8 b;
 } Pixel;
+
+inline usize min(usize a, usize b) {
+    return (a < b) ? a : b;
+}
+
+inline usize min_3(usize a, usize b, usize c) {
+    return (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
+}
+
+inline usize min_col(usize a, usize b, u32 a_val, u32 b_val) {
+    return (a_val < b_val) ? a : b;
+}
+
+inline usize min_col_3(usize a, usize b, usize c, u32 a_val, u32 b_val, u32 c_val) {
+    return (a_val < b_val) ? ((a_val < c_val) ? a : c) : ((b_val < c_val) ? b : c);
+}
 
 void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
     OMP(parallel)  //
@@ -108,12 +125,25 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) �
     }
 }
 
-void compute_cumulative(const u8* energy, const usize width, const usize height, u8* cumulative) {
+void compute_cumulative(const u8* energy, const usize width, const usize height, u32* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
+    // TODO(perf): implement parallel with dependency triangles
+
     for (usize row = 0; row < height; row++) {
         for (usize col = 0; col < width; col++) {
             usize idx = (row * width + col);
-            cumulative[idx] = energy[idx];
+            if (row == 0) {
+                cumulative[idx] = energy[idx];
+                continue;
+            } 
+
+            if (col == 0) {
+                cumulative[idx] = energy[idx] + min(cumulative[idx - width], cumulative[idx - width + 1]);
+            } else if (col == width - 1) {
+                cumulative[idx] = energy[idx] + min(cumulative[idx - width - 1], cumulative[idx - width]);
+            } else {
+                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1],cumulative[idx - width], cumulative[idx - width + 1]);
+            }
         }
     }
 }
@@ -121,15 +151,29 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
 // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
 // shrani jih v seam (height * n_seams_to_remove) in vrne kok seamov je naredil
 // lahko jih je manj bo pa vsaj en
-size_t find_seam(const u8* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
-    // TODO: actual impl, currently we just remove first and middle
-
-    for (usize i = 0; i < height; i++) {
-        // needs to be ordered for remove_seam to work correctly (and efficiently)
-        seam[i * n_seams_to_remove + 0] = 0;
-        seam[i * n_seams_to_remove + 1] = width / 2;
+size_t find_seam(const u32* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
+    // TODO: (perf)implement for n > 1 seams
+    u32 minimum = cumulative[0];
+    usize min_column = 0;
+    for (usize col = 0; col < width; col++){
+        if(cumulative[col] < minimum){
+            minimum = cumulative[col];
+            min_column = col;
+        }
     }
-    return 2;
+    seam[0] = min_column;
+
+    for (usize row = 1; row < height; row++) {
+        if (seam[row - 1] == 0){
+            seam[row] = min_col(0, 1, cumulative[row*width], cumulative[row*width + 1]);
+        } else if (seam[row - 1] == width - 1){
+            seam[row] = min_col(width-2, width-1, cumulative[row*width + width - 2], cumulative[row*width + width - 1]);
+        } else {
+            seam[row] = min_col_3(seam[row-1]-1, seam[row-1], seam[row-1]+1, cumulative[row*width + seam[row-1] - 1], cumulative[row*width + seam[row-1]], cumulative[row*width + seam[row-1] + 1]);
+        }
+    }
+
+    return 1;
 }
 
 void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
@@ -150,11 +194,8 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-inline usize min(usize a, usize b) {
-    return (a < b) ? a : b;
-}
 
-void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u8* cumulative) {
+void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative) {
     usize stride = *width;
     // koliko seamov bomo obdelali na enkrat
     usize n_seams_to_remove = SEAMS;
@@ -197,7 +238,7 @@ int main(int argc, char* argv[]) {
     printf("Loaded image %s of size %zux%zu.\n", image_in_name, width, height);
 
     u8* energy_buffer = box(width * height, u8);
-    u8* cumulative = box(width * height, u8);
+    u32* cumulative = box(width * height, u32);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
