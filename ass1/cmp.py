@@ -3,15 +3,15 @@
 import argparse
 import math
 
-HEADER = '\033[95m'
-OKBLUE = '\033[94m'
-OKCYAN = '\033[96m'
-OKGREEN = '\033[92m'
-WARNING = '\033[93m'
-FAIL = '\033[91m'
-ENDC = '\033[0m'
-BOLD = '\033[1m'
-UNDERLINE = '\033[4m'
+HEADER = "\033[95m"
+OKBLUE = "\033[94m"
+OKCYAN = "\033[96m"
+OKGREEN = "\033[92m"
+WARNING = "\033[93m"
+FAIL = "\033[91m"
+ENDC = "\033[0m"
+BOLD = "\033[1m"
+UNDERLINE = "\033[4m"
 
 parser = argparse.ArgumentParser(
     description="Script for comparing timings produced by run script."
@@ -82,14 +82,25 @@ for image in baseline_timings:
         diff_percent = (diff / baseline_time) * 100 if baseline_time != 0 else 0
         sig_marker = ""
         # Check significance: is |diff| > 7*σ_diff
-        if diff_sigma > 0:
-            if abs(diff) > args.significance_threshold * diff_sigma:
-                sig_marker = f" {BOLD}[SIGNIFICANT]{ENDC}"
+        significant = (
+            diff_sigma > 0 and abs(diff) > args.significance_threshold * diff_sigma
+        )
+        sig_marker = f" {BOLD}[SIGNIFICANT]{ENDC}"
+
+        def color(v: float, s: str) -> str:
+            if v == 0.0:
+                return s
+            if significant:
+                return f"{BOLD}{OKGREEN if v < 0 else FAIL}{s}{ENDC}"
+            else:
+                return f"{OKCYAN if v < 0 else WARNING}{s}{ENDC}"
+
         print(
-            f"  {label:>20}: {baseline_time:7.4f} s {OKGREEN if diff > 0 else FAIL}{diff:+.4f} s{ENDC} = {current_time:7.4f} s ({OKGREEN if diff_percent > 0 else FAIL}{diff_percent:+.2f}%{ENDC}) {sig_marker}"
+            f"  {label:>20}: {baseline_time:7.4f} s {color(diff, f'{diff:+.4f}')} s = {current_time:7.4f} s ({color(diff_percent, f'{diff_percent:+6.2f}')}%) {sig_marker if significant else ''}"
         )
 
 if args.bless:
     import shutil
+
     shutil.copyfile(args.current, args.baseline)
     print(f"Blessed {args.current} as new baseline {args.baseline}")
