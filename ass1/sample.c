@@ -6,6 +6,10 @@
 #include <sched.h>
 #include <numa.h>
 
+// TODO(perf): inlining
+
+// reporting of timings of substeps (useful for fine-tuning)
+// beware that full timings are in this mode not representative
 #define REPORT_SUB_TIMES 1
 #ifdef REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
@@ -111,6 +115,7 @@ G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 
 G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 ) 
             */
             // TODO(perf): optimize this for cache
+            // TODO(perf): SIMD
             f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
             f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
 

@@ -4,7 +4,7 @@
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=sample_out.log
+#SBATCH --output=timings.new.txt
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
