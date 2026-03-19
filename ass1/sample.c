@@ -139,6 +139,7 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
 
+    OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
         for (usize col = 0; col < width; col++) {
             usize idx = (row * width + col);
@@ -165,6 +166,8 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     // TODO: (perf)implement for n > 1 seams
     u32 minimum = cumulative[0];
     usize min_column = 0;
+
+    OMP(parallel for)  //
     for (usize col = 0; col < width; col++) {
         if (cumulative[col] < minimum) {
             minimum = cumulative[col];
@@ -173,6 +176,7 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     }
     seam[0] = min_column;
 
+    OMP(parallel for)  //
     for (usize row = 1; row < height; row++) {
         if (seam[row - 1] == 0) {
             seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
@@ -189,7 +193,7 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
 void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
     if (n_seams == 0) return;
     // odstrani stolpce podane v seams iz slike in shrani v image_out
-    // OMP(parallel for) // TODO(perf): paralization probably not worth for small images
+    OMP(parallel for) // TODO(perf): paralization probably not worth for small images
     for (usize row = 0; row < height; row++) {
         usize s = 1;
         // assumes ordered seams
