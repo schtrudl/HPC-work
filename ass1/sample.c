@@ -52,8 +52,8 @@
 #define box(n, type) (type*)malloc((n) * sizeof(type))
 // type aliases for better readability
 #define usize size_t
-#define u8 u_int8_t
-#define u32 u_int32_t
+#define u8 uint8_t
+#define u32 uint32_t
 #define f64 double
 #define f32 float
 
