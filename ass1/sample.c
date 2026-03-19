@@ -140,14 +140,14 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
             if (row == 0) {
                 cumulative[idx] = energy[idx];
                 continue;
-            } 
+            }
 
             if (col == 0) {
                 cumulative[idx] = energy[idx] + min(cumulative[idx - width], cumulative[idx - width + 1]);
             } else if (col == width - 1) {
                 cumulative[idx] = energy[idx] + min(cumulative[idx - width - 1], cumulative[idx - width]);
             } else {
-                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1],cumulative[idx - width], cumulative[idx - width + 1]);
+                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
             }
         }
     }
@@ -160,8 +160,8 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     // TODO: (perf)implement for n > 1 seams
     u32 minimum = cumulative[0];
     usize min_column = 0;
-    for (usize col = 0; col < width; col++){
-        if(cumulative[col] < minimum){
+    for (usize col = 0; col < width; col++) {
+        if (cumulative[col] < minimum) {
             minimum = cumulative[col];
             min_column = col;
         }
@@ -169,12 +169,12 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     seam[0] = min_column;
 
     for (usize row = 1; row < height; row++) {
-        if (seam[row - 1] == 0){
-            seam[row] = min_col(0, 1, cumulative[row*width], cumulative[row*width + 1]);
-        } else if (seam[row - 1] == width - 1){
-            seam[row] = min_col(width-2, width-1, cumulative[row*width + width - 2], cumulative[row*width + width - 1]);
+        if (seam[row - 1] == 0) {
+            seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
+        } else if (seam[row - 1] == width - 1) {
+            seam[row] = min_col(width - 2, width - 1, cumulative[row * width + width - 2], cumulative[row * width + width - 1]);
         } else {
-            seam[row] = min_col_3(seam[row-1]-1, seam[row-1], seam[row-1]+1, cumulative[row*width + seam[row-1] - 1], cumulative[row*width + seam[row-1]], cumulative[row*width + seam[row-1] + 1]);
+            seam[row] = min_col_3(seam[row - 1] - 1, seam[row - 1], seam[row - 1] + 1, cumulative[row * width + seam[row - 1] - 1], cumulative[row * width + seam[row - 1]], cumulative[row * width + seam[row - 1] + 1]);
         }
     }
 
@@ -198,7 +198,6 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
         }
     }
 }
-
 
 void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative) {
     usize stride = *width;
