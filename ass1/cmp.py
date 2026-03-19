@@ -59,12 +59,11 @@ for image in baseline_timings:
         # Error propagation: σ_diff = sqrt(σ_baseline² + σ_current²)
         diff_sigma = math.sqrt(baseline_sigma**2 + current_sigma**2)
         diff_percent = (diff / baseline_time) * 100 if baseline_time != 0 else 0
-        sig_marker = "statistically insignificant"
-        # Check significance: is |diff| > 2*σ_diff (roughly 95% confidence)
-        # If no sigma data (single runs), we can't determine significance
+        sig_marker = ""
+        # Check significance: is |diff| > 7*σ_diff
         if diff_sigma > 0:
-            significant = abs(diff) > 2 * diff_sigma
-            sig_marker = "statistically significant (|diff| > 2σ)"
+            if abs(diff) > 7 * diff_sigma:
+                sig_marker = " [SIGNIFICANT]"
         print(
             f"  {label:>20}: {baseline_time:7.4f} s {diff:+.4f} s = {current_time:7.4f} s ({diff_percent:+.2f}%) {sig_marker}"
         )
