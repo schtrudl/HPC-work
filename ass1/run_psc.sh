@@ -4,7 +4,7 @@
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=timings.new.txt
+#SBATCH --output=timings.new.log
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
@@ -14,6 +14,8 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 # Load the numactl module to enable numa library linking
 module load numactl
+
+rm sample
 
 # Compile
 gcc -O3 -lm -lnuma --openmp sample.c -o sample

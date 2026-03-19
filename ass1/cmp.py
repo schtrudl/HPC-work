@@ -10,13 +10,13 @@ parser.add_argument(
     "--baseline",
     type=str,
     help="baseline timings file",
-    default="timings.baseline.txt",
+    default="timings.baseline.log",
 )
 parser.add_argument(
     "--current",
     type=str,
     help="current/new timings file",
-    default="timings.new.txt",
+    default="timings.new.log",
 )
 args = parser.parse_args()
 
