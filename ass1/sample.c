@@ -11,6 +11,12 @@
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
 #define REPORT_SUB_TIMES 1
+// koliko seamov bomo obdelali na enkrat
+//
+// po definiciji problema naj bi bila kle 1
+#define SEAMS_PER_ROUND 2
+#define PARALLEL 1
+
 #ifdef REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
         do { \
@@ -39,12 +45,13 @@
 // Use 0 to retain the original number of color channels
 #define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
-// koliko seamov bomo obdelali na enkrat
-//
-// po definiciji problema naj bi bila kle 1
-#define SEAMS_PER_ROUND 2
-// this is to prevent formating of the OMP pragmas
-#define OMP(x) DO_PRAGMA(omp x)
+#ifdef PARALLEL
+    // this is to prevent formating of the OMP pragmas
+    #define OMP(x) DO_PRAGMA(omp x)
+#else
+    #define OMP(x)
+#endif
+
 #define DO_PRAGMA(x) _Pragma(#x)
 
 // typed malloc
@@ -55,6 +62,11 @@
 #define u32 uint32_t
 #define f64 double
 #define f32 float
+
+// some floating typing alias
+#define fxx f64
+// buffer type alias
+#define txx f64
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -68,15 +80,19 @@ inline usize min(usize a, usize b) {
     return (a < b) ? a : b;
 }
 
-inline usize min_3(usize a, usize b, usize c) {
+inline txx min_txx(txx a, txx b) {
+    return (a < b) ? a : b;
+}
+
+inline txx min_txx_3(txx a, txx b, txx c) {
     return (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
 }
 
-inline usize min_col(usize a, usize b, u32 a_val, u32 b_val) {
+inline usize min_col(usize a, usize b, txx a_val, txx b_val) {
     return (a_val < b_val) ? a : b;
 }
 
-inline usize min_col_3(usize a, usize b, usize c, u32 a_val, u32 b_val, u32 c_val) {
+inline usize min_col_3(usize a, usize b, usize c, txx a_val, txx b_val, txx c_val) {
     return (a_val < b_val) ? ((a_val < c_val) ? a : c) : ((b_val < c_val) ? b : c);
 }
 
@@ -101,7 +117,7 @@ void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
     }
 }
 
-void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, u8* energy) {
+void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, txx* energy) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
@@ -129,12 +145,12 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) �
             f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
             f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
 
-            energy[row * width + col] = (u8)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
+            energy[row * width + col] = (txx)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
         }
     }
 }
 
-void compute_cumulative(const u8* energy, const usize width, const usize height, u32* cumulative) {
+void compute_cumulative(const txx* energy, const usize width, const usize height, txx* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
 
@@ -148,11 +164,11 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
             }
 
             if (col == 0) {
-                cumulative[idx] = energy[idx] + min(cumulative[idx - width], cumulative[idx - width + 1]);
+                cumulative[idx] = energy[idx] + min_txx(cumulative[idx - width], cumulative[idx - width + 1]);
             } else if (col == width - 1) {
-                cumulative[idx] = energy[idx] + min(cumulative[idx - width - 1], cumulative[idx - width]);
+                cumulative[idx] = energy[idx] + min_txx(cumulative[idx - width - 1], cumulative[idx - width]);
             } else {
-                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
+                cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
             }
         }
     }
@@ -161,9 +177,9 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
 // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
 // shrani jih v seam (height * n_seams_to_remove) in vrne kok seamov je naredil
 // lahko jih je manj bo pa vsaj en
-size_t find_seam(const u32* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
-    // TODO: (perf)implement for n > 1 seams
-    u32 minimum = cumulative[0];
+size_t find_seam(const txx* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
+    // TODO(perf): implement for n > 1 seams
+    txx minimum = cumulative[0];
     usize min_column = 0;
 
     OMP(parallel for)  //
@@ -206,7 +222,7 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-void main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, u8* energy_buffer, u32* cumulative, usize* seam) {
+void main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy_buffer, txx* cumulative, usize* seam) {
     usize stride = *width;
     usize n_seams_to_remove = width_to_remove;
     while (n_seams_to_remove > 0) {
@@ -246,8 +262,8 @@ int main(int argc, char* argv[]) {
     usize height = (usize)orig_height;
     printf("Loaded image %s of size %zux%zu.\n", image_in_name, width, height);
 
-    u8* energy_buffer = box(width * height, u8);
-    u32* cumulative = box(width * height, u32);
+    txx* energy_buffer = box(width * height, txx);
+    txx* cumulative = box(width * height, txx);
     usize* seam = box(height * SEAMS_PER_ROUND, usize);
 
     // Copy the input image into output and mesure execution time
