@@ -5,14 +5,15 @@ from pathlib import Path
 import argparse
 import re
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+    description="This script will run program in selected input n times and extract and compute timing statistics."
+)
 parser.add_argument(
     "-n",
     type=int,
     default=5,
     help="Number of times to repeat the execution for each image (default: 5)",
 )
-# all others are images if none use all images
 parser.add_argument(
     "images",
     nargs="*",
@@ -28,7 +29,6 @@ parser.add_argument(
     ],
 )
 args = parser.parse_args()
-print(f"Running on {len(args.images)} images, {args.n} times each.")
 
 timings: dict[Path, dict[str, list[float]]] = {}
 for image in args.images:
@@ -50,7 +50,6 @@ for image in args.images:
                 timings[image][label] = []
             timings[image][label].append(time)
 
-print("\nAverage timings:")
 for image, timing in timings.items():
     print(f"{image}:")
     for label, times_list in timing.items():

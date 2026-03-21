@@ -6,6 +6,10 @@
 #include <sched.h>
 #include <numa.h>
 
+// TODO(perf): inlining
+
+// reporting of timings of substeps (useful for fine-tuning)
+// beware that full timings are in this mode not representative
 #define REPORT_SUB_TIMES 1
 #ifdef REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
@@ -33,9 +37,13 @@
 #include "stb_image_write.h"
 
 // Use 0 to retain the original number of color channels
-#define COLOR_CHANNELS 3  // XXX: can we assume this
+#define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
 #define SEAMS 128
+// koliko seamov bomo obdelali na enkrat
+//
+// po definiciji problema naj bi bila kle 1
+#define SEAMS_PER_ROUND 2
 // this is to prevent formating of the OMP pragmas
 #define OMP(x) DO_PRAGMA(omp x)
 #define DO_PRAGMA(x) _Pragma(#x)
@@ -44,9 +52,10 @@
 #define box(n, type) (type*)malloc((n) * sizeof(type))
 // type aliases for better readability
 #define usize size_t
-#define u8 u_int8_t
-#define u32 u_int32_t
+#define u8 uint8_t
+#define u32 uint32_t
 #define f64 double
+#define f32 float
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -111,6 +120,7 @@ G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 
 G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 ) 
             */
             // TODO(perf): optimize this for cache
+            // TODO(perf): SIMD
             f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
             f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
 
@@ -129,20 +139,21 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
 
+    OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
         for (usize col = 0; col < width; col++) {
             usize idx = (row * width + col);
             if (row == 0) {
                 cumulative[idx] = energy[idx];
                 continue;
-            } 
+            }
 
             if (col == 0) {
                 cumulative[idx] = energy[idx] + min(cumulative[idx - width], cumulative[idx - width + 1]);
             } else if (col == width - 1) {
                 cumulative[idx] = energy[idx] + min(cumulative[idx - width - 1], cumulative[idx - width]);
             } else {
-                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1],cumulative[idx - width], cumulative[idx - width + 1]);
+                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
             }
         }
     }
@@ -155,21 +166,24 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     // TODO: (perf)implement for n > 1 seams
     u32 minimum = cumulative[0];
     usize min_column = 0;
-    for (usize col = 0; col < width; col++){
-        if(cumulative[col] < minimum){
+
+    OMP(parallel for)  //
+    for (usize col = 0; col < width; col++) {
+        if (cumulative[col] < minimum) {
             minimum = cumulative[col];
             min_column = col;
         }
     }
     seam[0] = min_column;
 
+    OMP(parallel for)  //
     for (usize row = 1; row < height; row++) {
-        if (seam[row - 1] == 0){
-            seam[row] = min_col(0, 1, cumulative[row*width], cumulative[row*width + 1]);
-        } else if (seam[row - 1] == width - 1){
-            seam[row] = min_col(width-2, width-1, cumulative[row*width + width - 2], cumulative[row*width + width - 1]);
+        if (seam[row - 1] == 0) {
+            seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
+        } else if (seam[row - 1] == width - 1) {
+            seam[row] = min_col(width - 2, width - 1, cumulative[row * width + width - 2], cumulative[row * width + width - 1]);
         } else {
-            seam[row] = min_col_3(seam[row-1]-1, seam[row-1], seam[row-1]+1, cumulative[row*width + seam[row-1] - 1], cumulative[row*width + seam[row-1]], cumulative[row*width + seam[row-1] + 1]);
+            seam[row] = min_col_3(seam[row - 1] - 1, seam[row - 1], seam[row - 1] + 1, cumulative[row * width + seam[row - 1] - 1], cumulative[row * width + seam[row - 1]], cumulative[row * width + seam[row - 1] + 1]);
         }
     }
 
@@ -179,7 +193,7 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
 void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
     if (n_seams == 0) return;
     // odstrani stolpce podane v seams iz slike in shrani v image_out
-    // OMP(parallel for) // TODO(perf): paralization probably not worth for small images
+    OMP(parallel for) // TODO(perf): paralization probably not worth for small images
     for (usize row = 0; row < height; row++) {
         usize s = 1;
         // assumes ordered seams
@@ -194,23 +208,18 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-
-void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative) {
+void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative, usize* seam) {
     usize stride = *width;
-    // koliko seamov bomo obdelali na enkrat
     usize n_seams_to_remove = SEAMS;
-    usize n_seams_per_round = 2;  // po definiciji problema naj bi bila kle 1
-    usize* seam = box(height * n_seams_per_round, usize);  // XXX: should we move alloc outside of timing?
     while (n_seams_to_remove > 0) {
         report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
         report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
         usize s;
-        report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(n_seams_per_round, n_seams_to_remove), seam));
+        report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(SEAMS_PER_ROUND, n_seams_to_remove), seam));
         report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
         n_seams_to_remove -= s;
         *width -= s;
     }
-    free(seam);
 }
 
 int main(int argc, char* argv[]) {
@@ -239,15 +248,17 @@ int main(int argc, char* argv[]) {
 
     u8* energy_buffer = box(width * height, u8);
     u32* cumulative = box(width * height, u32);
+    usize* seam = box(height * SEAMS_PER_ROUND, usize);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, &width, height, energy_buffer, cumulative);
+    main_algo(image_in, &width, height, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
     free(energy_buffer);
     free(cumulative);
+    free(seam);
 
     // Write the output image to file
     char image_out_name_temp[MAX_FILENAME];
@@ -261,7 +272,6 @@ int main(int argc, char* argv[]) {
     }
     file_type++;  // skip the dot
 
-    // XXX: can we assume png
     if (!strcmp(file_type, "png"))
         stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, image_in, (orig_width * COLOR_CHANNELS));
     else
