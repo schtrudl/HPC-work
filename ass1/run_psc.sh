@@ -3,8 +3,8 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --output=timings.16.log
+#SBATCH --cpus-per-task=8
+#SBATCH --output=timings.208.log
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
