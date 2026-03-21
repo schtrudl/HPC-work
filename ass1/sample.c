@@ -176,7 +176,6 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     }
     seam[0] = min_column;
 
-    OMP(parallel for)  //
     for (usize row = 1; row < height; row++) {
         if (seam[row - 1] == 0) {
             seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
