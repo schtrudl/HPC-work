@@ -10,12 +10,12 @@
 
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
-#define REPORT_SUB_TIMES false
+#define REPORT_SUB_TIMES 0
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
 #define SEAMS_PER_ROUND 1
-#define PARALLEL true
+#define PARALLEL 1
 
 #if REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
