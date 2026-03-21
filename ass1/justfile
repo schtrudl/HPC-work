@@ -5,5 +5,5 @@ r:
     ./sample valve.png valve-out.png
 
 cmp:
-    kompari-cli report test_images/result test_images/out
+    kompari-cli report test_images/out test_images/result
     open report.html

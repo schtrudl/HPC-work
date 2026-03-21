@@ -243,7 +243,7 @@ void remove_1seam(Pixel* image, const usize width, const usize stride, const usi
     for (usize row = 0; row < height; row++) {
         usize s = seam[row];
         for (usize col = s + 1; col < width; col++) {
-            usize idx = (row * width + col);
+            usize idx = (row * stride + col);
             image[idx - 1] = image[idx];  // TODO(perf): memcpy?
         }
     }
@@ -263,28 +263,20 @@ void remove_1seam_with_copy(Pixel* image, const usize width, const usize height,
     }
 }
 
-Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy_buffer, txx* cumulative, usize* seam, Pixel* image_out) {
+Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy_buffer, txx* cumulative, usize* seam) {
     usize stride = *width;
     usize n_seams_to_remove = width_to_remove;
-    Pixel* src = image;
-    Pixel* dst = image_out;
-    Pixel* temp;
     while (n_seams_to_remove > 0) {
-        stride = *width;
-        report_time("compute_energy", compute_energy(src, *width, stride, height, energy_buffer));
+        report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
         report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
         usize s;
         report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(SEAMS_PER_ROUND, n_seams_to_remove), seam));
         //report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
-        report_time("remove_1seam_with_copy", remove_1seam_with_copy(src, *width, height, seam, dst));
+        report_time("remove_1seam", remove_1seam(image, *width, stride, height, seam));
         n_seams_to_remove -= s;
         *width -= s;
-        // swap src and dst
-        temp = src;
-        src = dst;
-        dst = temp;
     }
-    return src;
+    return image;
 }
 
 int main(int argc, char* argv[]) {
@@ -316,11 +308,10 @@ int main(int argc, char* argv[]) {
     txx* energy_buffer = box(width * height, txx);
     txx* cumulative = box(width * height, txx);
     usize* seam = box(height * SEAMS_PER_ROUND, usize);
-    Pixel* image_out = box(width * height, Pixel);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    Pixel* im = main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam, image_out);
+    Pixel* im = main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
@@ -341,13 +332,12 @@ int main(int argc, char* argv[]) {
     file_type++;  // skip the dot
 
     if (!strcmp(file_type, "png"))
-        stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, im, ((int)width * COLOR_CHANNELS));
+        stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, im, (orig_width * COLOR_CHANNELS));
     else
         printf("Error: Unknown image format %s! Only png, jpg, or bmp supported.\n", file_type);
 
     // Release the memory
     stbi_image_free(image_in);
-    free(image_out);
 
     return 0;
 }
