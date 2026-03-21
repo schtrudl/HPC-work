@@ -3,3 +3,7 @@ c:
 
 r:
     ./sample valve.png valve-out.png
+
+cmp:
+    kompari-cli report test_images/result test_images/out
+    open report.html
