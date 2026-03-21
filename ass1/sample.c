@@ -10,14 +10,14 @@
 
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
-#define REPORT_SUB_TIMES 0
+#define REPORT_SUB_TIMES false
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
 #define SEAMS_PER_ROUND 1
-#define PARALLEL 1
+#define PARALLEL true
 
-#ifdef REPORT_SUB_TIMES
+#if REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
         do { \
             double start = omp_get_wtime(); \
@@ -45,7 +45,7 @@
 // Use 0 to retain the original number of color channels
 #define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
-#ifdef PARALLEL
+#if PARALLEL
     // this is to prevent formating of the OMP pragmas
     #define OMP(x) DO_PRAGMA(omp x)
 #else
