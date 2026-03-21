@@ -39,7 +39,6 @@
 // Use 0 to retain the original number of color channels
 #define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
-#define SEAMS 128
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
@@ -207,9 +206,9 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative, usize* seam) {
+void main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, u8* energy_buffer, u32* cumulative, usize* seam) {
     usize stride = *width;
-    usize n_seams_to_remove = SEAMS;
+    usize n_seams_to_remove = width_to_remove;
     while (n_seams_to_remove > 0) {
         report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
         report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
@@ -222,8 +221,8 @@ void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        printf("USAGE: sample input_image output_image\n");
+    if (argc < 4) {
+        printf("USAGE: sample input_image width_to_remove output_image\n");
         exit(EXIT_FAILURE);
     }
 
@@ -231,7 +230,9 @@ int main(int argc, char* argv[]) {
     char image_out_name[MAX_FILENAME];
 
     snprintf(image_in_name, MAX_FILENAME, "%s", argv[1]);
-    snprintf(image_out_name, MAX_FILENAME, "%s", argv[2]);
+    snprintf(image_out_name, MAX_FILENAME, "%s", argv[3]);
+
+    usize width_to_remove = (usize)atoi(argv[2]);
 
     // Load image from file and allocate space for the output image
     int orig_width, orig_height, cpp;
@@ -251,7 +252,7 @@ int main(int argc, char* argv[]) {
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, &width, height, energy_buffer, cumulative, seam);
+    main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 

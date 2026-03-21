@@ -12,7 +12,13 @@ parser.add_argument(
     "-n",
     type=int,
     default=20,
-    help="Number of times to repeat the execution for each image (default: 5)",
+    help="Number of times to repeat the execution for each image (default: 20)",
+)
+parser.add_argument(
+    "--seams",
+    type=int,
+    default=128,
+    help="width to remove (default: 128)",
 )
 parser.add_argument(
     "--bless",
@@ -44,7 +50,7 @@ for image in args.images:
     out_image.parent.mkdir(parents=True, exist_ok=True)
     for i in range(args.n):
         output = subprocess.check_output(
-            ["./sample", str(image), str(out_image)]
+            ["./sample", str(image), str(args.seams), str(out_image)]
         ).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"
