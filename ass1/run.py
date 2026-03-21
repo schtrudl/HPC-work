@@ -32,6 +32,7 @@ parser.add_argument(
     help="Images to run on",
     default=[
         Path("test_images/valve.png"),
+        Path("test_images/tower.png"),
         Path("test_images/720x480.png"),
         Path("test_images/1024x768.png"),
         Path("test_images/1920x1200.png"),

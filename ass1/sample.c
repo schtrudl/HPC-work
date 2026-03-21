@@ -14,7 +14,7 @@
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
-#define SEAMS_PER_ROUND 2
+#define SEAMS_PER_ROUND 1
 #define PARALLEL 1
 
 #ifdef REPORT_SUB_TIMES
@@ -122,28 +122,36 @@ void compute_energy(const Pixel* image, const usize width, const usize stride, c
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
         usize row_minus_1 = (row == 0) ? 0 : row - 1;
-        usize row_plus_1 = (row == height - 1) ? height - 1 : row + 1;
+        usize row_plus_1 = (row == height - 1) ? row : row + 1;
         for (usize col = 0; col < width; col++) {
             usize col_minus_1 = (col == 0) ? 0 : col - 1;
-            usize col_plus_1 = (col == width - 1) ? width - 1 : col + 1;
+            usize col_plus_1 = (col == width - 1) ? col : col + 1;
             //Pixel p = image[row * stride + col];
             /*
 If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
 
-G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 ) + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 )
+    + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
 
-G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 ) 
+G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
+    − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 )
             */
             // TODO(perf): optimize this for cache
             // TODO(perf): SIMD
-            f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
-            f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
+            f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r  //
+                + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
+            f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r  //
+                - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
 
-            f64 Gxg = -image[row_minus_1 * stride + col_minus_1].g - 2 * image[row * stride + col_minus_1].g - image[row_plus_1 * stride + col_minus_1].g + image[row_minus_1 * stride + col_plus_1].g + 2 * image[row * stride + col_plus_1].g + image[row_plus_1 * stride + col_plus_1].g;
-            f64 Gyg = image[row_minus_1 * stride + col_minus_1].g + 2 * image[row_minus_1 * stride + col].g + image[row_minus_1 * stride + col_plus_1].g - image[row_plus_1 * stride + col_minus_1].g - 2 * image[row_plus_1 * stride + col].g - image[row_plus_1 * stride + col_plus_1].g;
+            f64 Gxg = -image[row_minus_1 * stride + col_minus_1].g - 2 * image[row * stride + col_minus_1].g - image[row_plus_1 * stride + col_minus_1].g  //
+                + image[row_minus_1 * stride + col_plus_1].g + 2 * image[row * stride + col_plus_1].g + image[row_plus_1 * stride + col_plus_1].g;
+            f64 Gyg = image[row_minus_1 * stride + col_minus_1].g + 2 * image[row_minus_1 * stride + col].g + image[row_minus_1 * stride + col_plus_1].g  //
+                - image[row_plus_1 * stride + col_minus_1].g - 2 * image[row_plus_1 * stride + col].g - image[row_plus_1 * stride + col_plus_1].g;
 
-            f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
-            f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
+            f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b  //
+                + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
+            f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b  //
+                - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
 
             energy[row * width + col] = (txx)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
         }
@@ -153,22 +161,28 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) �
 void compute_cumulative(const txx* energy, const usize width, const usize height, txx* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
+    usize height_minus_1 = height - 1;
 
-    OMP(parallel for)  //
-    for (usize row = 0; row < height; row++) {
-        for (usize col = 0; col < width; col++) {
-            usize idx = (row * width + col);
-            if (row == 0) {
-                cumulative[idx] = energy[idx];
-                continue;
-            }
+    OMP(parallel)  //
+    {
+        // bottom up
+        for (usize row = height_minus_1; row < height; row--) {  // this is so wrong that it actually works
+            OMP(for) //
+            for (usize col = 0; col < width; col++) {
+                usize idx = (row * width + col);
+                if (row == height_minus_1) {
+                    cumulative[idx] = energy[idx];
+                    continue;
+                }
+                usize idx_prev = ((row + 1) * width + col);
 
-            if (col == 0) {
-                cumulative[idx] = energy[idx] + min_txx(cumulative[idx - width], cumulative[idx - width + 1]);
-            } else if (col == width - 1) {
-                cumulative[idx] = energy[idx] + min_txx(cumulative[idx - width - 1], cumulative[idx - width]);
-            } else {
-                cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
+                if (col == 0) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev], cumulative[idx_prev + 1]);
+                } else if (col == width - 1) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev - 1], cumulative[idx_prev]);
+                } else {
+                    cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx_prev - 1], cumulative[idx_prev], cumulative[idx_prev + 1]);
+                }
             }
         }
     }
@@ -182,7 +196,7 @@ size_t find_seam(const txx* cumulative, const usize width, const usize height, u
     txx minimum = cumulative[0];
     usize min_column = 0;
 
-    OMP(parallel for)  //
+    // top-down
     for (usize col = 0; col < width; col++) {
         if (cumulative[col] < minimum) {
             minimum = cumulative[col];
@@ -192,12 +206,13 @@ size_t find_seam(const txx* cumulative, const usize width, const usize height, u
     seam[0] = min_column;
 
     for (usize row = 1; row < height; row++) {
-        if (seam[row - 1] == 0) {
-            seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
-        } else if (seam[row - 1] == width - 1) {
+        usize prev_col = seam[row - 1];
+        if (prev_col == 0) {
+            seam[row] = min_col(0, 1, cumulative[row * width + 0], cumulative[row * width + 1]);
+        } else if (prev_col == width - 1) {
             seam[row] = min_col(width - 2, width - 1, cumulative[row * width + width - 2], cumulative[row * width + width - 1]);
         } else {
-            seam[row] = min_col_3(seam[row - 1] - 1, seam[row - 1], seam[row - 1] + 1, cumulative[row * width + seam[row - 1] - 1], cumulative[row * width + seam[row - 1]], cumulative[row * width + seam[row - 1] + 1]);
+            seam[row] = min_col_3(prev_col - 1, prev_col, prev_col + 1, cumulative[row * width + prev_col - 1], cumulative[row * width + prev_col], cumulative[row * width + prev_col + 1]);
         }
     }
 
