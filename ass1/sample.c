@@ -138,20 +138,20 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
             */
             // TODO(perf): optimize this for cache
             // TODO(perf): SIMD
-            f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r  //
-                + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
-            f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r  //
-                - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
+            fxx Gxr = -(fxx)image[row_minus_1 * stride + col_minus_1].r - 2.0 * (fxx)image[row * stride + col_minus_1].r - (fxx)image[row_plus_1 * stride + col_minus_1].r  //
+                + (fxx)image[row_minus_1 * stride + col_plus_1].r + 2.0 * (fxx)image[row * stride + col_plus_1].r + (fxx)image[row_plus_1 * stride + col_plus_1].r;
+            fxx Gyr = (fxx)image[row_minus_1 * stride + col_minus_1].r + 2.0 * (fxx)image[row_minus_1 * stride + col].r + (fxx)image[row_minus_1 * stride + col_plus_1].r  //
+                - (fxx)image[row_plus_1 * stride + col_minus_1].r - 2.0 * (fxx)image[row_plus_1 * stride + col].r - (fxx)image[row_plus_1 * stride + col_plus_1].r;
 
-            f64 Gxg = -image[row_minus_1 * stride + col_minus_1].g - 2 * image[row * stride + col_minus_1].g - image[row_plus_1 * stride + col_minus_1].g  //
-                + image[row_minus_1 * stride + col_plus_1].g + 2 * image[row * stride + col_plus_1].g + image[row_plus_1 * stride + col_plus_1].g;
-            f64 Gyg = image[row_minus_1 * stride + col_minus_1].g + 2 * image[row_minus_1 * stride + col].g + image[row_minus_1 * stride + col_plus_1].g  //
-                - image[row_plus_1 * stride + col_minus_1].g - 2 * image[row_plus_1 * stride + col].g - image[row_plus_1 * stride + col_plus_1].g;
+            fxx Gxg = -(fxx)image[row_minus_1 * stride + col_minus_1].g - 2.0 * (fxx)image[row * stride + col_minus_1].g - (fxx)image[row_plus_1 * stride + col_minus_1].g  //
+                + (fxx)image[row_minus_1 * stride + col_plus_1].g + 2.0 * (fxx)image[row * stride + col_plus_1].g + (fxx)image[row_plus_1 * stride + col_plus_1].g;
+            fxx Gyg = (fxx)image[row_minus_1 * stride + col_minus_1].g + 2.0 * (fxx)image[row_minus_1 * stride + col].g + (fxx)image[row_minus_1 * stride + col_plus_1].g  //
+                - (fxx)image[row_plus_1 * stride + col_minus_1].g - 2.0 * (fxx)image[row_plus_1 * stride + col].g - (fxx)image[row_plus_1 * stride + col_plus_1].g;
 
-            f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b  //
-                + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
-            f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b  //
-                - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
+            fxx Gxb = -(fxx)image[row_minus_1 * stride + col_minus_1].b - 2.0 * (fxx)image[row * stride + col_minus_1].b - (fxx)image[row_plus_1 * stride + col_minus_1].b  //
+                + (fxx)image[row_minus_1 * stride + col_plus_1].b + 2.0 * (fxx)image[row * stride + col_plus_1].b + (fxx)image[row_plus_1 * stride + col_plus_1].b;
+            fxx Gyb = (fxx)image[row_minus_1 * stride + col_minus_1].b + 2.0 * (fxx)image[row_minus_1 * stride + col].b + (fxx)image[row_minus_1 * stride + col_plus_1].b  //
+                - (fxx)image[row_plus_1 * stride + col_minus_1].b - 2.0 * (fxx)image[row_plus_1 * stride + col].b - (fxx)image[row_plus_1 * stride + col_plus_1].b;
 
             energy[row * width + col] = (txx)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
         }
