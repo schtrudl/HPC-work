@@ -55,18 +55,19 @@
 #define DO_PRAGMA(x) _Pragma(#x)
 
 // typed malloc
-#define box(n, type) (type*)malloc((n) * sizeof(type))
+#define box(n, type) (type*)aligned_alloc(sizeof(type), (n) * sizeof(type))
 // type aliases for better readability
 #define usize size_t
 #define u8 uint8_t
 #define u32 uint32_t
+#define i32 int32_t
 #define f64 double
 #define f32 float
 
 // some floating typing alias
 #define fxx f32
 // buffer type alias
-#define txx f32
+#define txx u32
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -138,22 +139,22 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
             */
             // TODO(perf): optimize this for cache
             // TODO(perf): SIMD
-            fxx Gxr = -(fxx)image[row_minus_1 * stride + col_minus_1].r - 2.0 * (fxx)image[row * stride + col_minus_1].r - (fxx)image[row_plus_1 * stride + col_minus_1].r  //
-                + (fxx)image[row_minus_1 * stride + col_plus_1].r + 2.0 * (fxx)image[row * stride + col_plus_1].r + (fxx)image[row_plus_1 * stride + col_plus_1].r;
-            fxx Gyr = (fxx)image[row_minus_1 * stride + col_minus_1].r + 2.0 * (fxx)image[row_minus_1 * stride + col].r + (fxx)image[row_minus_1 * stride + col_plus_1].r  //
-                - (fxx)image[row_plus_1 * stride + col_minus_1].r - 2.0 * (fxx)image[row_plus_1 * stride + col].r - (fxx)image[row_plus_1 * stride + col_plus_1].r;
+            i32 Gxr = -(i32)image[row_minus_1 * stride + col_minus_1].r - 2 * (i32)image[row * stride + col_minus_1].r - (i32)image[row_plus_1 * stride + col_minus_1].r  //
+                + (i32)image[row_minus_1 * stride + col_plus_1].r + 2 * (i32)image[row * stride + col_plus_1].r + (i32)image[row_plus_1 * stride + col_plus_1].r;
+            i32 Gyr = (i32)image[row_minus_1 * stride + col_minus_1].r + 2 * (i32)image[row_minus_1 * stride + col].r + (i32)image[row_minus_1 * stride + col_plus_1].r  //
+                - (i32)image[row_plus_1 * stride + col_minus_1].r - 2 * (i32)image[row_plus_1 * stride + col].r - (i32)image[row_plus_1 * stride + col_plus_1].r;
 
-            fxx Gxg = -(fxx)image[row_minus_1 * stride + col_minus_1].g - 2.0 * (fxx)image[row * stride + col_minus_1].g - (fxx)image[row_plus_1 * stride + col_minus_1].g  //
-                + (fxx)image[row_minus_1 * stride + col_plus_1].g + 2.0 * (fxx)image[row * stride + col_plus_1].g + (fxx)image[row_plus_1 * stride + col_plus_1].g;
-            fxx Gyg = (fxx)image[row_minus_1 * stride + col_minus_1].g + 2.0 * (fxx)image[row_minus_1 * stride + col].g + (fxx)image[row_minus_1 * stride + col_plus_1].g  //
-                - (fxx)image[row_plus_1 * stride + col_minus_1].g - 2.0 * (fxx)image[row_plus_1 * stride + col].g - (fxx)image[row_plus_1 * stride + col_plus_1].g;
+            i32 Gxg = -(i32)image[row_minus_1 * stride + col_minus_1].g - 2 * (i32)image[row * stride + col_minus_1].g - (i32)image[row_plus_1 * stride + col_minus_1].g  //
+                + (i32)image[row_minus_1 * stride + col_plus_1].g + 2 * (i32)image[row * stride + col_plus_1].g + (i32)image[row_plus_1 * stride + col_plus_1].g;
+            i32 Gyg = (i32)image[row_minus_1 * stride + col_minus_1].g + 2 * (i32)image[row_minus_1 * stride + col].g + (i32)image[row_minus_1 * stride + col_plus_1].g  //
+                - (i32)image[row_plus_1 * stride + col_minus_1].g - 2 * (i32)image[row_plus_1 * stride + col].g - (i32)image[row_plus_1 * stride + col_plus_1].g;
 
-            fxx Gxb = -(fxx)image[row_minus_1 * stride + col_minus_1].b - 2.0 * (fxx)image[row * stride + col_minus_1].b - (fxx)image[row_plus_1 * stride + col_minus_1].b  //
-                + (fxx)image[row_minus_1 * stride + col_plus_1].b + 2.0 * (fxx)image[row * stride + col_plus_1].b + (fxx)image[row_plus_1 * stride + col_plus_1].b;
-            fxx Gyb = (fxx)image[row_minus_1 * stride + col_minus_1].b + 2.0 * (fxx)image[row_minus_1 * stride + col].b + (fxx)image[row_minus_1 * stride + col_plus_1].b  //
-                - (fxx)image[row_plus_1 * stride + col_minus_1].b - 2.0 * (fxx)image[row_plus_1 * stride + col].b - (fxx)image[row_plus_1 * stride + col_plus_1].b;
+            i32 Gxb = -(i32)image[row_minus_1 * stride + col_minus_1].b - 2 * (i32)image[row * stride + col_minus_1].b - (i32)image[row_plus_1 * stride + col_minus_1].b  //
+                + (i32)image[row_minus_1 * stride + col_plus_1].b + 2 * (i32)image[row * stride + col_plus_1].b + (i32)image[row_plus_1 * stride + col_plus_1].b;
+            i32 Gyb = (i32)image[row_minus_1 * stride + col_minus_1].b + 2 * (i32)image[row_minus_1 * stride + col].b + (i32)image[row_minus_1 * stride + col_plus_1].b  //
+                - (i32)image[row_plus_1 * stride + col_minus_1].b - 2 * (i32)image[row_plus_1 * stride + col].b - (i32)image[row_plus_1 * stride + col_plus_1].b;
 
-            energy[row * width + col] = (txx)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
+            energy[row * width + col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
         }
     }
 }
