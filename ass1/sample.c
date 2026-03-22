@@ -160,35 +160,31 @@ G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
 }
 
 void compute_cumulative(const txx* energy, const usize width, const usize height, txx* cumulative) {
+    // TODO(perf): we can avoid * by computing idx as part of the loop
+    // TODO(perf): implement parallel with dependency triangles
     usize height_minus_1 = height - 1;
 
     OMP(parallel)  //
     {
-        // Copy last row
-        OMP(for simd)  //
-        for (usize col = 0; col < width; col++) {
-            cumulative[height_minus_1 * width + col] = energy[height_minus_1 * width + col];
-        }
+        // bottom up
+        for (usize row = height_minus_1; row < height; row--) {  // this is so wrong that it actually works
+            OMP(for) //
+            for (usize col = 0; col < width; col++) {
+                usize idx = (row * width + col);
+                if (row == height_minus_1) {
+                    cumulative[idx] = energy[idx];
+                    continue;
+                }
+                usize idx_prev = ((row + 1) * width + col);
 
-        // bottom up (excluding last row)
-        for (usize row = height_minus_1 - 1; row < height; row--) {
-            txx* cum_row = &cumulative[row * width];
-            const txx* cum_prev = &cumulative[(row + 1) * width];
-            const txx* e_row = &energy[row * width];
-
-            // col = 0 (unrolled)
-            OMP(single nowait)
-            cum_row[0] = e_row[0] + min_txx(cum_prev[0], cum_prev[1]);
-
-            // col = 1 to width-2 (SIMD)
-            OMP(for simd)
-            for (usize col = 1; col < width - 1; col++) {
-                cum_row[col] = e_row[col] + min_txx_3(cum_prev[col - 1], cum_prev[col], cum_prev[col + 1]);
+                if (col == 0) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev], cumulative[idx_prev + 1]);
+                } else if (col == width - 1) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev - 1], cumulative[idx_prev]);
+                } else {
+                    cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx_prev - 1], cumulative[idx_prev], cumulative[idx_prev + 1]);
+                }
             }
-
-            // col = width-1 (unrolled)
-            OMP(single)
-            cum_row[width - 1] = e_row[width - 1] + min_txx(cum_prev[width - 2], cum_prev[width - 1]);
         }
     }
 }
