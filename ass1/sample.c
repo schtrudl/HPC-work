@@ -10,7 +10,7 @@
 
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
-#define REPORT_SUB_TIMES 0
+#define REPORT_SUB_TIMES 1
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
@@ -425,7 +425,7 @@ int main(int argc, char* argv[]) {
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    Pixel* im = main_fused_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
+    Pixel* im = main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
