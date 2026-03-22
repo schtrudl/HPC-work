@@ -280,6 +280,119 @@ Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_
     return image;
 }
 
+Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy, txx* cumulative, usize* seam) {
+    usize stride = *width;
+    OMP(parallel)  //
+    {
+        usize n_seams_to_remove = width_to_remove;
+        while (n_seams_to_remove > 0) {
+            usize w = *width;
+            {  // compute energy
+                OMP(for)  //
+                for (usize row = 0; row < height; row++) {
+                    usize row_minus_1 = (row == 0) ? 0 : row - 1;
+                    usize row_plus_1 = (row == height - 1) ? row : row + 1;
+                    for (usize col = 0; col < w; col++) {
+                        usize col_minus_1 = (col == 0) ? 0 : col - 1;
+                        usize col_plus_1 = (col == w - 1) ? col : col + 1;
+                        //Pixel p = image[row * stride + col];
+                        /*
+If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
+
+G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 )
+    + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+
+G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
+    − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 )
+            */
+                        // TODO(perf): optimize this for cache
+                        // TODO(perf): SIMD
+                        i32 Gxr = -(i32)image[row_minus_1 * stride + col_minus_1].r - 2 * (i32)image[row * stride + col_minus_1].r - (i32)image[row_plus_1 * stride + col_minus_1].r  //
+                            + (i32)image[row_minus_1 * stride + col_plus_1].r + 2 * (i32)image[row * stride + col_plus_1].r + (i32)image[row_plus_1 * stride + col_plus_1].r;
+                        i32 Gyr = (i32)image[row_minus_1 * stride + col_minus_1].r + 2 * (i32)image[row_minus_1 * stride + col].r + (i32)image[row_minus_1 * stride + col_plus_1].r  //
+                            - (i32)image[row_plus_1 * stride + col_minus_1].r - 2 * (i32)image[row_plus_1 * stride + col].r - (i32)image[row_plus_1 * stride + col_plus_1].r;
+
+                        i32 Gxg = -(i32)image[row_minus_1 * stride + col_minus_1].g - 2 * (i32)image[row * stride + col_minus_1].g - (i32)image[row_plus_1 * stride + col_minus_1].g  //
+                            + (i32)image[row_minus_1 * stride + col_plus_1].g + 2 * (i32)image[row * stride + col_plus_1].g + (i32)image[row_plus_1 * stride + col_plus_1].g;
+                        i32 Gyg = (i32)image[row_minus_1 * stride + col_minus_1].g + 2 * (i32)image[row_minus_1 * stride + col].g + (i32)image[row_minus_1 * stride + col_plus_1].g  //
+                            - (i32)image[row_plus_1 * stride + col_minus_1].g - 2 * (i32)image[row_plus_1 * stride + col].g - (i32)image[row_plus_1 * stride + col_plus_1].g;
+
+                        i32 Gxb = -(i32)image[row_minus_1 * stride + col_minus_1].b - 2 * (i32)image[row * stride + col_minus_1].b - (i32)image[row_plus_1 * stride + col_minus_1].b  //
+                            + (i32)image[row_minus_1 * stride + col_plus_1].b + 2 * (i32)image[row * stride + col_plus_1].b + (i32)image[row_plus_1 * stride + col_plus_1].b;
+                        i32 Gyb = (i32)image[row_minus_1 * stride + col_minus_1].b + 2 * (i32)image[row_minus_1 * stride + col].b + (i32)image[row_minus_1 * stride + col_plus_1].b  //
+                            - (i32)image[row_plus_1 * stride + col_minus_1].b - 2 * (i32)image[row_plus_1 * stride + col].b - (i32)image[row_plus_1 * stride + col_plus_1].b;
+
+                        energy[row * w + col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+                    }
+                }
+            }
+            {  // compute_cumulative
+                usize height_minus_1 = height - 1;
+                // bottom up
+                for (usize row = height_minus_1; row < height; row--) {  // this is so wrong that it actually works
+                    OMP(for) //
+                    for (usize col = 0; col < w; col++) {
+                        usize idx = (row * w + col);
+                        if (row == height_minus_1) {
+                            cumulative[idx] = energy[idx];
+                            continue;
+                        }
+                        usize idx_prev = ((row + 1) * w + col);
+
+                        if (col == 0) {
+                            cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev], cumulative[idx_prev + 1]);
+                        } else if (col == w - 1) {
+                            cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev - 1], cumulative[idx_prev]);
+                        } else {
+                            cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx_prev - 1], cumulative[idx_prev], cumulative[idx_prev + 1]);
+                        }
+                    }
+                }
+            }
+            OMP(barrier)  //
+            OMP(single) {  // find seam
+                txx minimum = cumulative[0];
+                usize min_column = 0;
+
+                // top-down
+                for (usize col = 0; col < w; col++) {
+                    if (cumulative[col] < minimum) {
+                        minimum = cumulative[col];
+                        min_column = col;
+                    }
+                }
+                seam[0] = min_column;
+
+                for (usize row = 1; row < height; row++) {
+                    usize prev_col = seam[row - 1];
+                    if (prev_col == 0) {
+                        seam[row] = min_col(0, 1, cumulative[row * w + 0], cumulative[row * w + 1]);
+                    } else if (prev_col == w - 1) {
+                        seam[row] = min_col(w - 2, w - 1, cumulative[row * w + w - 2], cumulative[row * w + w - 1]);
+                    } else {
+                        seam[row] = min_col_3(prev_col - 1, prev_col, prev_col + 1, cumulative[row * w + prev_col - 1], cumulative[row * w + prev_col], cumulative[row * w + prev_col + 1]);
+                    }
+                }
+            }
+            {  // remove_1seam
+                OMP(for) //
+                for (usize row = 0; row < height; row++) {
+                    usize s = seam[row];
+                    for (usize col = s + 1; col < w; col++) {
+                        usize idx = (row * stride + col);
+                        image[idx - 1] = image[idx];  // TODO(perf): memcpy?
+                    }
+                }
+            }
+            n_seams_to_remove -= 1;
+            OMP(single) {
+                *width -= 1;
+            }
+        }
+    }
+    return image;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         printf("USAGE: sample input_image width_to_remove output_image\n");
@@ -312,7 +425,7 @@ int main(int argc, char* argv[]) {
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    Pixel* im = main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
+    Pixel* im = main_fused_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
