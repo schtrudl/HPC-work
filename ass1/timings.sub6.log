@@ -1,0 +1,42 @@
+test_images/valve.png:
+  compute_energy: 0.0801 s ± 0.0003 s
+  compute_cumulative: 0.0671 s ± 0.0006 s
+  find_seam: 0.0007 s ± 0.0000 s
+  remove_1seam: 0.0009 s ± 0.0000 s
+  full: 0.1491 s ± 0.0006 s
+test_images/tower.png:
+  compute_energy: 0.4372 s ± 0.0009 s
+  compute_cumulative: 0.1888 s ± 0.0009 s
+  find_seam: 0.0039 s ± 0.0000 s
+  remove_1seam: 0.0010 s ± 0.0000 s
+  full: 0.6313 s ± 0.0015 s
+test_images/720x480.png:
+  compute_energy: 0.1051 s ± 0.0006 s
+  compute_cumulative: 0.0767 s ± 0.0003 s
+  find_seam: 0.0005 s ± 0.0000 s
+  remove_1seam: 0.0011 s ± 0.0000 s
+  full: 0.1838 s ± 0.0007 s
+test_images/1024x768.png:
+  compute_energy: 0.2411 s ± 0.0008 s
+  compute_cumulative: 0.1366 s ± 0.0006 s
+  find_seam: 0.0023 s ± 0.0000 s
+  remove_1seam: 0.0023 s ± 0.0000 s
+  full: 0.3826 s ± 0.0010 s
+test_images/1920x1200.png:
+  compute_energy: 0.7280 s ± 0.0013 s
+  compute_cumulative: 0.2820 s ± 0.0006 s
+  find_seam: 0.0033 s ± 0.0001 s
+  remove_1seam: 0.0034 s ± 0.0001 s
+  full: 1.0172 s ± 0.0017 s
+test_images/3840x2160.png:
+  compute_energy: 2.6788 s ± 0.0063 s
+  compute_cumulative: 0.6766 s ± 0.0024 s
+  find_seam: 0.0098 s ± 0.0001 s
+  remove_1seam: 0.1258 s ± 0.0013 s
+  full: 3.4927 s ± 0.0066 s
+test_images/7680x4320.png:
+  compute_energy: 10.7544 s ± 0.0168 s
+  compute_cumulative: 1.9921 s ± 0.0065 s
+  find_seam: 0.0196 s ± 0.0007 s
+  remove_1seam: 0.3119 s ± 0.0006 s
+  full: 13.0798 s ± 0.0208 s
