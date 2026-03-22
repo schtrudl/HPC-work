@@ -64,9 +64,9 @@
 #define f32 float
 
 // some floating typing alias
-#define fxx f64
+#define fxx f32
 // buffer type alias
-#define txx f64
+#define txx f32
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
