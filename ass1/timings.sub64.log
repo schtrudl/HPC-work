@@ -1,42 +1,42 @@
 test_images/valve.png:
-  compute_energy: 0.0124 s ± 0.0002 s
-  compute_cumulative: 0.1669 s ± 0.0014 s
+  compute_energy: 0.0124 s ± 0.0001 s
+  compute_cumulative: 0.1670 s ± 0.0009 s
   find_seam: 0.0020 s ± 0.0000 s
   remove_1seam: 0.0021 s ± 0.0000 s
-  full: 0.1838 s ± 0.0015 s
+  full: 0.1837 s ± 0.0010 s
 test_images/tower.png:
-  compute_energy: 0.0483 s ± 0.0007 s
-  compute_cumulative: 0.3818 s ± 0.0039 s
+  compute_energy: 0.0482 s ± 0.0003 s
+  compute_cumulative: 0.3814 s ± 0.0044 s
   find_seam: 0.0053 s ± 0.0000 s
   remove_1seam: 0.0020 s ± 0.0000 s
-  full: 0.4378 s ± 0.0041 s
+  full: 0.4372 s ± 0.0043 s
 test_images/720x480.png:
-  compute_energy: 0.0147 s ± 0.0005 s
-  compute_cumulative: 0.1832 s ± 0.0006 s
+  compute_energy: 0.0147 s ± 0.0001 s
+  compute_cumulative: 0.1831 s ± 0.0007 s
   find_seam: 0.0013 s ± 0.0000 s
   remove_1seam: 0.0021 s ± 0.0000 s
-  full: 0.2017 s ± 0.0009 s
+  full: 0.2015 s ± 0.0008 s
 test_images/1024x768.png:
-  compute_energy: 0.0272 s ± 0.0008 s
-  compute_cumulative: 0.2818 s ± 0.0031 s
+  compute_energy: 0.0278 s ± 0.0024 s
+  compute_cumulative: 0.2826 s ± 0.0025 s
   find_seam: 0.0038 s ± 0.0001 s
-  remove_1seam: 0.0024 s ± 0.0001 s
-  full: 0.3155 s ± 0.0034 s
+  remove_1seam: 0.0025 s ± 0.0001 s
+  full: 0.3170 s ± 0.0035 s
 test_images/1920x1200.png:
-  compute_energy: 0.0860 s ± 0.0136 s
-  compute_cumulative: 0.5182 s ± 0.0105 s
+  compute_energy: 0.0743 s ± 0.0003 s
+  compute_cumulative: 0.5167 s ± 0.0037 s
   find_seam: 0.0049 s ± 0.0000 s
   remove_1seam: 0.0023 s ± 0.0000 s
-  full: 0.6118 s ± 0.0199 s
+  full: 0.5985 s ± 0.0037 s
 test_images/3840x2160.png:
-  compute_energy: 0.3025 s ± 0.0409 s
-  compute_cumulative: 1.0837 s ± 0.0113 s
-  find_seam: 0.0107 s ± 0.0012 s
-  remove_1seam: 0.0075 s ± 0.0004 s
-  full: 1.4048 s ± 0.0444 s
+  compute_energy: 0.2722 s ± 0.0091 s
+  compute_cumulative: 1.0930 s ± 0.0087 s
+  find_seam: 0.0098 s ± 0.0007 s
+  remove_1seam: 0.0073 s ± 0.0001 s
+  full: 1.3828 s ± 0.0154 s
 test_images/7680x4320.png:
-  compute_energy: 1.1218 s ± 0.0118 s
-  compute_cumulative: 2.4763 s ± 0.0681 s
-  find_seam: 0.0324 s ± 0.0044 s
-  remove_1seam: 0.1581 s ± 0.0073 s
-  full: 3.7897 s ± 0.0806 s
+  compute_energy: 1.1230 s ± 0.0041 s
+  compute_cumulative: 2.4701 s ± 0.0568 s
+  find_seam: 0.0276 s ± 0.0038 s
+  remove_1seam: 0.1530 s ± 0.0060 s
+  full: 3.7748 s ± 0.0602 s

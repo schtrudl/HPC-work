@@ -1,42 +1,42 @@
 test_images/valve.png:
-  compute_energy: 0.2375 s ± 0.0003 s
+  compute_energy: 0.2376 s ± 0.0012 s
   compute_cumulative: 0.0437 s ± 0.0008 s
   find_seam: 0.0005 s ± 0.0000 s
   remove_1seam: 0.0012 s ± 0.0000 s
-  full: 0.2832 s ± 0.0008 s
+  full: 0.2833 s ± 0.0013 s
 test_images/tower.png:
-  compute_energy: 1.3018 s ± 0.0009 s
-  compute_cumulative: 0.1552 s ± 0.0011 s
+  compute_energy: 1.3020 s ± 0.0025 s
+  compute_cumulative: 0.1552 s ± 0.0004 s
   find_seam: 0.0014 s ± 0.0000 s
-  remove_1seam: 0.0018 s ± 0.0002 s
-  full: 1.4606 s ± 0.0014 s
+  remove_1seam: 0.0019 s ± 0.0001 s
+  full: 1.4608 s ± 0.0025 s
 test_images/720x480.png:
-  compute_energy: 0.3108 s ± 0.0004 s
-  compute_cumulative: 0.0503 s ± 0.0002 s
+  compute_energy: 0.3110 s ± 0.0011 s
+  compute_cumulative: 0.0504 s ± 0.0001 s
   find_seam: 0.0003 s ± 0.0000 s
-  remove_1seam: 0.0014 s ± 0.0000 s
-  full: 0.3631 s ± 0.0004 s
+  remove_1seam: 0.0015 s ± 0.0000 s
+  full: 0.3633 s ± 0.0011 s
 test_images/1024x768.png:
-  compute_energy: 0.7176 s ± 0.0014 s
-  compute_cumulative: 0.0990 s ± 0.0001 s
+  compute_energy: 0.7182 s ± 0.0007 s
+  compute_cumulative: 0.0993 s ± 0.0011 s
   find_seam: 0.0010 s ± 0.0000 s
-  remove_1seam: 0.0031 s ± 0.0000 s
-  full: 0.8211 s ± 0.0014 s
+  remove_1seam: 0.0033 s ± 0.0001 s
+  full: 0.8220 s ± 0.0014 s
 test_images/1920x1200.png:
-  compute_energy: 2.1730 s ± 0.0012 s
-  compute_cumulative: 0.2523 s ± 0.0010 s
+  compute_energy: 2.1718 s ± 0.0021 s
+  compute_cumulative: 0.2526 s ± 0.0010 s
   find_seam: 0.0021 s ± 0.0000 s
-  remove_1seam: 0.0143 s ± 0.0001 s
-  full: 2.4425 s ± 0.0014 s
+  remove_1seam: 0.0145 s ± 0.0001 s
+  full: 2.4416 s ± 0.0020 s
 test_images/3840x2160.png:
-  compute_energy: 7.9638 s ± 0.0090 s
-  compute_cumulative: 0.8099 s ± 0.0021 s
+  compute_energy: 7.9743 s ± 0.0121 s
+  compute_cumulative: 0.8136 s ± 0.0029 s
   find_seam: 0.0091 s ± 0.0000 s
-  remove_1seam: 0.1601 s ± 0.0005 s
-  full: 8.9448 s ± 0.0096 s
+  remove_1seam: 0.1601 s ± 0.0003 s
+  full: 8.9587 s ± 0.0138 s
 test_images/7680x4320.png:
-  compute_energy: 32.0650 s ± 0.0297 s
-  compute_cumulative: 2.9945 s ± 0.0307 s
-  find_seam: 0.0186 s ± 0.0003 s
-  remove_1seam: 0.3464 s ± 0.0104 s
-  full: 35.4264 s ± 0.0425 s
+  compute_energy: 32.0707 s ± 0.0093 s
+  compute_cumulative: 2.9838 s ± 0.0044 s
+  find_seam: 0.0183 s ± 0.0001 s
+  remove_1seam: 0.3410 s ± 0.0004 s
+  full: 35.4154 s ± 0.0089 s
