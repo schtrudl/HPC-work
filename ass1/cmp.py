@@ -79,7 +79,11 @@ print("Comparison of timings baseline ± diff = new (rel diff):")
 for image in baseline_timings:
     print(f"{image}:")
     for label in baseline_timings[image]:
+        if image not in baseline_timings or label not in baseline_timings[image]:
+            continue
         baseline_time, baseline_sigma = baseline_timings[image][label]
+        if image not in current_timings or label not in current_timings[image]:
+            continue
         current_time, current_sigma = current_timings[image][label]
         diff = current_time - baseline_time
         # Error propagation: σ_diff = sqrt(σ_baseline² + σ_current²)

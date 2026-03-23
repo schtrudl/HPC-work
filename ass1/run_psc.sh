@@ -3,8 +3,8 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --output=timings.208.log
+#SBATCH --cpus-per-task=16
+#SBATCH --output=timings.native16.log
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
@@ -18,7 +18,7 @@ module load numactl
 rm sample
 
 # Compile
-gcc -O3 -lm -lnuma --openmp sample.c -o sample
+gcc -O3 -march=native -lm -lnuma --openmp sample.c -o sample
 
 # Run
 srun python3 run.py -n 20

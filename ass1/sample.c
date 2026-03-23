@@ -10,7 +10,7 @@
 
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
-#define REPORT_SUB_TIMES 1
+#define REPORT_SUB_TIMES 0
 // koliko seamov bomo obdelali na enkrat
 //
 // po definiciji problema naj bi bila kle 1
