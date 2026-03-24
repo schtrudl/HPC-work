@@ -137,17 +137,17 @@ void compute_energy(const Pixel* image, const usize width, const usize stride, c
             const Pixel ml = row_mid[col - 1], mr = row_mid[col + 1];
             const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
 
-            // Sobel Gx: -tl - 2*ml - bl + tr + 2*mr + br
-            i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
-            i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
-            i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
+            // Sobel Gx: -tl - 2*ml - bl + tr + 2*mr + br (all in f32)
+            f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
 
             // Sobel Gy: +tl + 2*tc + tr - bl - 2*bc - br
-            i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
-            i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
-            i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+            f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-            f64 mag = (sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0;
+            f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
             energy_row[col] = (txx)mag;
         }
 
@@ -160,15 +160,15 @@ void compute_energy(const Pixel* image, const usize width, const usize stride, c
             const Pixel ml = row_mid[col_minus_1], mr = row_mid[col_plus_1];
             const Pixel bl = row_bot[col_minus_1], bc = row_bot[col], br = row_bot[col_plus_1];
 
-            i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
-            i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
-            i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
+            f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
 
-            i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
-            i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
-            i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+            f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-            f64 mag = (sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0;
+            f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
             energy_row[col] = (txx)mag;
         }
     }
@@ -319,14 +319,14 @@ Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize wid
                         const Pixel ml = row_mid[col - 1], mr = row_mid[col + 1];
                         const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
 
-                        i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
-                        i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
-                        i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
-                        i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
-                        i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
-                        i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+                        f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+                        f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+                        f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+                        f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+                        f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+                        f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-                        energy_row[col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+                        energy_row[col] = (txx)((sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f));
                     }
 
                     // Boundary columns
@@ -337,14 +337,14 @@ Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize wid
                         const Pixel ml = row_mid[cm1], mr = row_mid[cp1];
                         const Pixel bl = row_bot[cm1], bc = row_bot[col], br = row_bot[cp1];
 
-                        i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
-                        i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
-                        i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
-                        i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
-                        i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
-                        i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+                        f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+                        f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+                        f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+                        f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+                        f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+                        f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-                        energy_row[col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+                        energy_row[col] = (txx)((sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f));
                     }
                 }
             }
