@@ -4,7 +4,7 @@
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --output=timings.simd16.log
+#SBATCH --output=timings.f32simd16.log
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
