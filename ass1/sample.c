@@ -77,23 +77,23 @@ typedef struct {
     u8 b;
 } Pixel;
 
-inline usize min(usize a, usize b) {
+inline usize min(const usize a, const usize b) {
     return (a < b) ? a : b;
 }
 
-inline txx min_txx(txx a, txx b) {
+inline txx min_txx(const txx a, const txx b) {
     return (a < b) ? a : b;
 }
 
-inline txx min_txx_3(txx a, txx b, txx c) {
+inline txx min_txx_3(const txx a, const txx b, const txx c) {
     return (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
 }
 
-inline usize min_col(usize a, usize b, txx a_val, txx b_val) {
+inline usize min_col(const usize a, const usize b, const txx a_val, const txx b_val) {
     return (a_val < b_val) ? a : b;
 }
 
-inline usize min_col_3(usize a, usize b, usize c, txx a_val, txx b_val, txx c_val) {
+inline usize min_col_3(const usize a, const usize b, const usize c, const txx a_val, const txx b_val, const txx c_val) {
     return (a_val < b_val) ? ((a_val < c_val) ? a : c) : ((b_val < c_val) ? b : c);
 }
 
@@ -118,16 +118,35 @@ void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
     }
 }
 
-void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, txx* energy) {
+void compute_energy(const Pixel* const image, const usize width, const usize stride, const usize height, txx* const energy) {
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
         const usize row_minus_1 = (row == 0) ? 0 : row - 1;
         const usize row_plus_1 = (row == height - 1) ? row : row + 1;
         // Precompute row offsets for better cache/SIMD behavior
-        const Pixel* row_top = image + row_minus_1 * stride;
-        const Pixel* row_mid = image + row * stride;
-        const Pixel* row_bot = image + row_plus_1 * stride;
-        txx* energy_row = energy + row * width;
+        const Pixel* const row_top = image + row_minus_1 * stride;
+        const Pixel* const row_mid = image + row * stride;
+        const Pixel* const row_bot = image + row_plus_1 * stride;
+        txx* const energy_row = energy + row * width;
+
+        // Handle col = 0
+        {
+            const usize col = 0;
+            const Pixel tl = row_top[0], tc = row_top[0], tr = row_top[1];
+            const Pixel ml = row_mid[0], mr = row_mid[1];
+            const Pixel bl = row_bot[0], bc = row_bot[0], br = row_bot[1];
+
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
+
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            energy_row[col] = (txx)mag;
+        }
 
         // Process interior columns with SIMD (col 1 to width-2)
         OMP(simd)
@@ -138,43 +157,41 @@ void compute_energy(const Pixel* image, const usize width, const usize stride, c
             const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
 
             // Sobel Gx: -tl - 2*ml - bl + tr + 2*mr + br (all in f32)
-            f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
-            f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
-            f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
 
             // Sobel Gy: +tl + 2*tc + tr - bl - 2*bc - br
-            f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
-            f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
-            f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-            f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
             energy_row[col] = (txx)mag;
         }
 
-        // Handle boundary columns (col 0 and col width-1) separately
-        for (usize col = 0; col < width; col += (width > 1 ? width - 1 : 1)) {
-            usize col_minus_1 = (col == 0) ? 0 : col - 1;
-            usize col_plus_1 = (col == width - 1) ? col : col + 1;
+        // Handle col = width - 1
+        {
+            const usize col = width - 1;
+            const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col];
+            const Pixel ml = row_mid[col - 1], mr = row_mid[col];
+            const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col];
 
-            const Pixel tl = row_top[col_minus_1], tc = row_top[col], tr = row_top[col_plus_1];
-            const Pixel ml = row_mid[col_minus_1], mr = row_mid[col_plus_1];
-            const Pixel bl = row_bot[col_minus_1], bc = row_bot[col], br = row_bot[col_plus_1];
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
 
-            f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
-            f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
-            f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-            f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
-            f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
-            f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
-
-            f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
             energy_row[col] = (txx)mag;
         }
     }
 }
 
-void compute_cumulative(const txx* energy, const usize width, const usize height, txx* cumulative) {
+void compute_cumulative(const txx* const energy, const usize width, const usize height, txx* const cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
     const usize height_minus_1 = height - 1;
@@ -207,7 +224,7 @@ void compute_cumulative(const txx* energy, const usize width, const usize height
 // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
 // shrani jih v seam (height * n_seams_to_remove) in vrne kok seamov je naredil
 // lahko jih je manj bo pa vsaj en
-size_t find_seam(const txx* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
+size_t find_seam(const txx* const cumulative, const usize width, const usize height, const usize n_seams_to_remove, usize* const seam) {
     // TODO(perf): implement for n > 1 seams
     txx minimum = cumulative[0];
     usize min_column = 0;
@@ -235,7 +252,7 @@ size_t find_seam(const txx* cumulative, const usize width, const usize height, u
     return 1;
 }
 
-void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
+void remove_seam(Pixel* const image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* const seam) {
     if (n_seams == 0) return;
     // odstrani stolpce podane v seams iz slike in shrani v image_out
     OMP(parallel for) // TODO(perf): paralization probably not worth for small images
@@ -253,7 +270,7 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
     }
 }
 
-void remove_1seam(Pixel* image, const usize width, const usize stride, const usize height, const usize* seam) {
+void remove_1seam(Pixel* const image, const usize width, const usize stride, const usize height, const usize* const seam) {
     // odstrani stolpce podane v seams iz slike in shrani v image_out
     OMP(parallel for) // TODO(perf): paralization probably not worth for small images
     for (usize row = 0; row < height; row++) {
@@ -279,7 +296,7 @@ void remove_1seam_with_copy(Pixel* image, const usize width, const usize height,
     }
 }
 
-Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy_buffer, txx* cumulative, usize* seam) {
+Pixel* main_algo(Pixel* image, usize* width, const usize height, const usize width_to_remove, txx* const energy_buffer, txx* const cumulative, usize* const seam) {
     const usize stride = *width;
     usize n_seams_to_remove = width_to_remove;
     while (n_seams_to_remove > 0) {
@@ -329,13 +346,29 @@ Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize wid
                         energy_row[col] = (txx)((sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f));
                     }
 
-                    // Boundary columns
-                    for (usize col = 0; col < w; col += (w > 1 ? w - 1 : 1)) {
-                        usize cm1 = (col == 0) ? 0 : col - 1;
-                        usize cp1 = (col == w - 1) ? col : col + 1;
-                        const Pixel tl = row_top[cm1], tc = row_top[col], tr = row_top[cp1];
-                        const Pixel ml = row_mid[cm1], mr = row_mid[cp1];
-                        const Pixel bl = row_bot[cm1], bc = row_bot[col], br = row_bot[cp1];
+                    // Handle col = 0
+                    {
+                        const usize col = 0;
+                        const Pixel tl = row_top[0], tc = row_top[0], tr = row_top[1];
+                        const Pixel ml = row_mid[0], mr = row_mid[1];
+                        const Pixel bl = row_bot[0], bc = row_bot[0], br = row_bot[1];
+
+                        f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+                        f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+                        f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+                        f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+                        f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+                        f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
+
+                        energy_row[col] = (txx)((sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f));
+                    }
+
+                    // Handle col = w - 1
+                    {
+                        const usize col = w - 1;
+                        const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col];
+                        const Pixel ml = row_mid[col - 1], mr = row_mid[col];
+                        const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col];
 
                         f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
                         f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
