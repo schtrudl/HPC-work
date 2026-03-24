@@ -3,10 +3,9 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=psc
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --output=timings.final1.log
+#SBATCH --cpus-per-task=16
+#SBATCH --output=timings.new.log
 #SBATCH --hint=nomultithread
-#SBATCH --time=01:30:00
 
 # Set OpenMP environment variables for thread placement and binding
 export OMP_PLACES=cores
