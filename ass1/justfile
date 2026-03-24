@@ -1,4 +1,5 @@
 c:
+    rm sample
     gcc -fsanitize=address -g -O2 -lm -lnuma --openmp sample.c -o sample
 
 r:
