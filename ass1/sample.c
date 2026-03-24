@@ -177,7 +177,7 @@ void compute_energy(const Pixel* image, const usize width, const usize stride, c
 void compute_cumulative(const txx* energy, const usize width, const usize height, txx* cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
-    usize height_minus_1 = height - 1;
+    const usize height_minus_1 = height - 1;
 
     OMP(parallel)  //
     {
@@ -185,12 +185,12 @@ void compute_cumulative(const txx* energy, const usize width, const usize height
         for (usize row = height_minus_1; row < height; row--) {  // this is so wrong that it actually works
             OMP(for) //
             for (usize col = 0; col < width; col++) {
-                usize idx = (row * width + col);
+                const usize idx = (row * width + col);
                 if (row == height_minus_1) {
                     cumulative[idx] = energy[idx];
                     continue;
                 }
-                usize idx_prev = ((row + 1) * width + col);
+                const usize idx_prev = ((row + 1) * width + col);
 
                 if (col == 0) {
                     cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev], cumulative[idx_prev + 1]);
@@ -222,7 +222,7 @@ size_t find_seam(const txx* cumulative, const usize width, const usize height, u
     seam[0] = min_column;
 
     for (usize row = 1; row < height; row++) {
-        usize prev_col = seam[row - 1];
+        const usize prev_col = seam[row - 1];
         if (prev_col == 0) {
             seam[row] = min_col(0, 1, cumulative[row * width + 0], cumulative[row * width + 1]);
         } else if (prev_col == width - 1) {
@@ -247,7 +247,7 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
                 s++;
                 continue;
             }
-            usize idx = (row * stride + col);
+            const usize idx = (row * stride + col);
             image[idx - s] = image[idx];
         }
     }
@@ -257,9 +257,9 @@ void remove_1seam(Pixel* image, const usize width, const usize stride, const usi
     // odstrani stolpce podane v seams iz slike in shrani v image_out
     OMP(parallel for) // TODO(perf): paralization probably not worth for small images
     for (usize row = 0; row < height; row++) {
-        usize s = seam[row];
+        const usize s = seam[row];
         for (usize col = s + 1; col < width; col++) {
-            usize idx = (row * stride + col);
+            const usize idx = (row * stride + col);
             image[idx - 1] = image[idx];  // TODO(perf): memcpy?
         }
     }
@@ -268,7 +268,7 @@ void remove_1seam(Pixel* image, const usize width, const usize stride, const usi
 void remove_1seam_with_copy(Pixel* image, const usize width, const usize height, const usize* seam, Pixel* image_out) {
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
-        usize s = seam[row];
+        const usize s = seam[row];
         for (usize col = 0; col < s; col++) {
             image_out[row * (width - 1) + col] = image[row * width + col];
         }
@@ -280,7 +280,7 @@ void remove_1seam_with_copy(Pixel* image, const usize width, const usize height,
 }
 
 Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy_buffer, txx* cumulative, usize* seam) {
-    usize stride = *width;
+    const usize stride = *width;
     usize n_seams_to_remove = width_to_remove;
     while (n_seams_to_remove > 0) {
         report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
@@ -296,7 +296,7 @@ Pixel* main_algo(Pixel* image, usize* width, const usize height, usize width_to_
 }
 
 Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize width_to_remove, txx* energy, txx* cumulative, usize* seam) {
-    usize stride = *width;
+    const usize stride = *width;
     OMP(parallel)  //
     {
         usize n_seams_to_remove = width_to_remove;
