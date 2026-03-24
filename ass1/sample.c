@@ -119,42 +119,57 @@ void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
 }
 
 void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, txx* energy) {
-    // TODO(perf): we can avoid * by computing idx as part of the loop
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
-        usize row_minus_1 = (row == 0) ? 0 : row - 1;
-        usize row_plus_1 = (row == height - 1) ? row : row + 1;
-        for (usize col = 0; col < width; col++) {
+        const usize row_minus_1 = (row == 0) ? 0 : row - 1;
+        const usize row_plus_1 = (row == height - 1) ? row : row + 1;
+        // Precompute row offsets for better cache/SIMD behavior
+        const Pixel* row_top = image + row_minus_1 * stride;
+        const Pixel* row_mid = image + row * stride;
+        const Pixel* row_bot = image + row_plus_1 * stride;
+        txx* energy_row = energy + row * width;
+
+        // Process interior columns with SIMD (col 1 to width-2)
+        OMP(simd)
+        for (usize col = 1; col < width - 1; col++) {
+            // Load 9 neighbors - compiler can optimize these accesses
+            const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col + 1];
+            const Pixel ml = row_mid[col - 1], mr = row_mid[col + 1];
+            const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
+
+            // Sobel Gx: -tl - 2*ml - bl + tr + 2*mr + br
+            i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
+            i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
+            i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
+
+            // Sobel Gy: +tl + 2*tc + tr - bl - 2*bc - br
+            i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
+            i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
+            i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+
+            f64 mag = (sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0;
+            energy_row[col] = (txx)mag;
+        }
+
+        // Handle boundary columns (col 0 and col width-1) separately
+        for (usize col = 0; col < width; col += (width > 1 ? width - 1 : 1)) {
             usize col_minus_1 = (col == 0) ? 0 : col - 1;
             usize col_plus_1 = (col == width - 1) ? col : col + 1;
-            //Pixel p = image[row * stride + col];
-            /*
-If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
 
-G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 )
-    + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+            const Pixel tl = row_top[col_minus_1], tc = row_top[col], tr = row_top[col_plus_1];
+            const Pixel ml = row_mid[col_minus_1], mr = row_mid[col_plus_1];
+            const Pixel bl = row_bot[col_minus_1], bc = row_bot[col], br = row_bot[col_plus_1];
 
-G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
-    − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 )
-            */
-            // TODO(perf): optimize this for cache
-            // TODO(perf): SIMD
-            i32 Gxr = -(i32)image[row_minus_1 * stride + col_minus_1].r - 2 * (i32)image[row * stride + col_minus_1].r - (i32)image[row_plus_1 * stride + col_minus_1].r  //
-                + (i32)image[row_minus_1 * stride + col_plus_1].r + 2 * (i32)image[row * stride + col_plus_1].r + (i32)image[row_plus_1 * stride + col_plus_1].r;
-            i32 Gyr = (i32)image[row_minus_1 * stride + col_minus_1].r + 2 * (i32)image[row_minus_1 * stride + col].r + (i32)image[row_minus_1 * stride + col_plus_1].r  //
-                - (i32)image[row_plus_1 * stride + col_minus_1].r - 2 * (i32)image[row_plus_1 * stride + col].r - (i32)image[row_plus_1 * stride + col_plus_1].r;
+            i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
+            i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
+            i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
 
-            i32 Gxg = -(i32)image[row_minus_1 * stride + col_minus_1].g - 2 * (i32)image[row * stride + col_minus_1].g - (i32)image[row_plus_1 * stride + col_minus_1].g  //
-                + (i32)image[row_minus_1 * stride + col_plus_1].g + 2 * (i32)image[row * stride + col_plus_1].g + (i32)image[row_plus_1 * stride + col_plus_1].g;
-            i32 Gyg = (i32)image[row_minus_1 * stride + col_minus_1].g + 2 * (i32)image[row_minus_1 * stride + col].g + (i32)image[row_minus_1 * stride + col_plus_1].g  //
-                - (i32)image[row_plus_1 * stride + col_minus_1].g - 2 * (i32)image[row_plus_1 * stride + col].g - (i32)image[row_plus_1 * stride + col_plus_1].g;
+            i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
+            i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
+            i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
 
-            i32 Gxb = -(i32)image[row_minus_1 * stride + col_minus_1].b - 2 * (i32)image[row * stride + col_minus_1].b - (i32)image[row_plus_1 * stride + col_minus_1].b  //
-                + (i32)image[row_minus_1 * stride + col_plus_1].b + 2 * (i32)image[row * stride + col_plus_1].b + (i32)image[row_plus_1 * stride + col_plus_1].b;
-            i32 Gyb = (i32)image[row_minus_1 * stride + col_minus_1].b + 2 * (i32)image[row_minus_1 * stride + col].b + (i32)image[row_minus_1 * stride + col_plus_1].b  //
-                - (i32)image[row_plus_1 * stride + col_minus_1].b - 2 * (i32)image[row_plus_1 * stride + col].b - (i32)image[row_plus_1 * stride + col_plus_1].b;
-
-            energy[row * width + col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+            f64 mag = (sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0;
+            energy_row[col] = (txx)mag;
         }
     }
 }
@@ -287,42 +302,49 @@ Pixel* main_fused_algo(Pixel* image, usize* width, const usize height, usize wid
         usize n_seams_to_remove = width_to_remove;
         while (n_seams_to_remove > 0) {
             usize w = *width;
-            {  // compute energy
+            {  // compute energy with SIMD
                 OMP(for)  //
                 for (usize row = 0; row < height; row++) {
-                    usize row_minus_1 = (row == 0) ? 0 : row - 1;
-                    usize row_plus_1 = (row == height - 1) ? row : row + 1;
-                    for (usize col = 0; col < w; col++) {
-                        usize col_minus_1 = (col == 0) ? 0 : col - 1;
-                        usize col_plus_1 = (col == w - 1) ? col : col + 1;
-                        //Pixel p = image[row * stride + col];
-                        /*
-If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
+                    const usize row_minus_1 = (row == 0) ? 0 : row - 1;
+                    const usize row_plus_1 = (row == height - 1) ? row : row + 1;
+                    const Pixel* row_top = image + row_minus_1 * stride;
+                    const Pixel* row_mid = image + row * stride;
+                    const Pixel* row_bot = image + row_plus_1 * stride;
+                    txx* energy_row = energy + row * w;
 
-G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 )
-    + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+                    // Interior columns with SIMD
+                    OMP(simd)
+                    for (usize col = 1; col < w - 1; col++) {
+                        const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col + 1];
+                        const Pixel ml = row_mid[col - 1], mr = row_mid[col + 1];
+                        const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
 
-G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 )
-    − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 )
-            */
-                        // TODO(perf): optimize this for cache
-                        // TODO(perf): SIMD
-                        i32 Gxr = -(i32)image[row_minus_1 * stride + col_minus_1].r - 2 * (i32)image[row * stride + col_minus_1].r - (i32)image[row_plus_1 * stride + col_minus_1].r  //
-                            + (i32)image[row_minus_1 * stride + col_plus_1].r + 2 * (i32)image[row * stride + col_plus_1].r + (i32)image[row_plus_1 * stride + col_plus_1].r;
-                        i32 Gyr = (i32)image[row_minus_1 * stride + col_minus_1].r + 2 * (i32)image[row_minus_1 * stride + col].r + (i32)image[row_minus_1 * stride + col_plus_1].r  //
-                            - (i32)image[row_plus_1 * stride + col_minus_1].r - 2 * (i32)image[row_plus_1 * stride + col].r - (i32)image[row_plus_1 * stride + col_plus_1].r;
+                        i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
+                        i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
+                        i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
+                        i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
+                        i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
+                        i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
 
-                        i32 Gxg = -(i32)image[row_minus_1 * stride + col_minus_1].g - 2 * (i32)image[row * stride + col_minus_1].g - (i32)image[row_plus_1 * stride + col_minus_1].g  //
-                            + (i32)image[row_minus_1 * stride + col_plus_1].g + 2 * (i32)image[row * stride + col_plus_1].g + (i32)image[row_plus_1 * stride + col_plus_1].g;
-                        i32 Gyg = (i32)image[row_minus_1 * stride + col_minus_1].g + 2 * (i32)image[row_minus_1 * stride + col].g + (i32)image[row_minus_1 * stride + col_plus_1].g  //
-                            - (i32)image[row_plus_1 * stride + col_minus_1].g - 2 * (i32)image[row_plus_1 * stride + col].g - (i32)image[row_plus_1 * stride + col_plus_1].g;
+                        energy_row[col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+                    }
 
-                        i32 Gxb = -(i32)image[row_minus_1 * stride + col_minus_1].b - 2 * (i32)image[row * stride + col_minus_1].b - (i32)image[row_plus_1 * stride + col_minus_1].b  //
-                            + (i32)image[row_minus_1 * stride + col_plus_1].b + 2 * (i32)image[row * stride + col_plus_1].b + (i32)image[row_plus_1 * stride + col_plus_1].b;
-                        i32 Gyb = (i32)image[row_minus_1 * stride + col_minus_1].b + 2 * (i32)image[row_minus_1 * stride + col].b + (i32)image[row_minus_1 * stride + col_plus_1].b  //
-                            - (i32)image[row_plus_1 * stride + col_minus_1].b - 2 * (i32)image[row_plus_1 * stride + col].b - (i32)image[row_plus_1 * stride + col_plus_1].b;
+                    // Boundary columns
+                    for (usize col = 0; col < w; col += (w > 1 ? w - 1 : 1)) {
+                        usize cm1 = (col == 0) ? 0 : col - 1;
+                        usize cp1 = (col == w - 1) ? col : col + 1;
+                        const Pixel tl = row_top[cm1], tc = row_top[col], tr = row_top[cp1];
+                        const Pixel ml = row_mid[cm1], mr = row_mid[cp1];
+                        const Pixel bl = row_bot[cm1], bc = row_bot[col], br = row_bot[cp1];
 
-                        energy[row * w + col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
+                        i32 Gxr = -(i32)tl.r - 2 * (i32)ml.r - (i32)bl.r + (i32)tr.r + 2 * (i32)mr.r + (i32)br.r;
+                        i32 Gxg = -(i32)tl.g - 2 * (i32)ml.g - (i32)bl.g + (i32)tr.g + 2 * (i32)mr.g + (i32)br.g;
+                        i32 Gxb = -(i32)tl.b - 2 * (i32)ml.b - (i32)bl.b + (i32)tr.b + 2 * (i32)mr.b + (i32)br.b;
+                        i32 Gyr = (i32)tl.r + 2 * (i32)tc.r + (i32)tr.r - (i32)bl.r - 2 * (i32)bc.r - (i32)br.r;
+                        i32 Gyg = (i32)tl.g + 2 * (i32)tc.g + (i32)tr.g - (i32)bl.g - 2 * (i32)bc.g - (i32)br.g;
+                        i32 Gyb = (i32)tl.b + 2 * (i32)tc.b + (i32)tr.b - (i32)bl.b - 2 * (i32)bc.b - (i32)br.b;
+
+                        energy_row[col] = (txx)((sqrt((f64)(Gxr * Gxr + Gyr * Gyr)) + sqrt((f64)(Gxg * Gxg + Gyg * Gyg)) + sqrt((f64)(Gxb * Gxb + Gyb * Gyb))) / 3.0);
                     }
                 }
             }
