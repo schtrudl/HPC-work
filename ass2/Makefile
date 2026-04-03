@@ -3,34 +3,15 @@ CC = nvcc
 
 # Compiler flags
 LDLIBS = -lm
-CFLAGS = -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp,-Wall
+CFLAGS = -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp
 
-SRC=src
+all: lenia_cpu lenia_gpu
 
-# Source files
-SRCS=$(wildcard $(SRC)/*.cu)
-SRCS+=$(wildcard $(SRC)/*.c)
+lenia_cpu:
+	gcc -O3 -march=native --openmp ./src/lenia_cpu.c -o lenia_cpu -lm
 
-# Header files
-HDRS = $(wildcard $(SRC)/*.h)
+lenia_gpu:
+	$(CC) $(CFLAGS) ./src/lenia_gpu.cu -o lenia_gpu $(LDLIBS)
 
-# Object files
-OBJS_1 = $(SRCS:$(SRC)/%.c=%.o)
-OBJS = $(OBJS_1:$(SRC)/%.cu=%.o)
-
-# Executable name
-TARGET = lenia.out
-
-# Build target
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o $(TARGET) $(LDLIBS)
-
-# Compile source files to object files
-%.o: $(SRC)/%.cu $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-%.o: $(SRC)/%.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-# Clean
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f lenia_cpu lenia_gpu
