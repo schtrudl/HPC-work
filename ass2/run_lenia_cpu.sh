@@ -4,15 +4,12 @@
 #SBATCH --job-name=lenia
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --output=timings.cpu.log
+#SBATCH --output=timings_cpu_1_baseline.log
 #SBATCH --hint=nomultithread
 
-#LOAD MODULES
-module load CUDA
-
 #BUILD
-make
+make lenia_cpu
 
 #RUN
-srun ./lenia.out
+srun ./lenia_cpu
 

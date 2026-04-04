@@ -9,12 +9,11 @@
 #SBATCH --nodes=1
 #SBATCH --output=lenia_out.log
 
-#LOAD MODULES 
+#LOAD MODULES
 module load CUDA
 
 #BUILD
-make
+make lenia_gpu
 
 #RUN
-srun ./lenia.out
-
+srun ./lenia_gpu

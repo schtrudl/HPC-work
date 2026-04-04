@@ -10,13 +10,16 @@
 // #include <cuda.h>
 
 // Uncomment to generate gif animation
-//#define GENERATE_GIF
+// #define GENERATE_GIF
 
 // For prettier indexing syntax
 #define w(r, c) (w[(r) * w_cols + (c)])
 #define input(r, c) (input[((r) % rows) * cols + ((c) % cols)])
 
-#define N 256
+#ifndef N
+    #define N 256
+#endif
+
 #define NUM_STEPS 100
 #define DT 0.1
 #define KERNEL_SIZE 26
@@ -87,13 +90,16 @@ inline double* convolve2d(double* result, const double* input, const double* w, 
     return result;
 }
 
-// Function to evolve Lenia
-double* evolve_lenia(const unsigned int rows, const unsigned int cols, const unsigned int steps, const double dt, const unsigned int kernel_size, const struct orbium_coo* orbiums, const unsigned int num_orbiums) {
+// Place two orbiums in the world with different angles. (y, x, angle)
+// Orbiums size is 20x20, supproted angles are 0, 90, 180 and 270 degrees.
+struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, N / 3, 0}, {N / 3, 0, 180}};
+
+int main() {
 #ifdef GENERATE_GIF
     ge_GIF* gif = ge_new_gif(
         "lenia.gif", /* file name */
-        cols,
-        rows, /* canvas size */
+        N,
+        N, /* canvas size */
         inferno_pallete, /*pallete*/
         8, /* palette depth == log2(# of colors) */
         -1, /* no transparency */
@@ -102,30 +108,32 @@ double* evolve_lenia(const unsigned int rows, const unsigned int cols, const uns
 #endif
 
     // Allocate memory
-    double* w = (double*)calloc(kernel_size * kernel_size, sizeof(double));
-    double* world = (double*)calloc(rows * cols, sizeof(double));
-    double* tmp = (double*)calloc(rows * cols, sizeof(double));
+    double* w = (double*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(double));
+    double* world = (double*)calloc(N * N, sizeof(double));
+    double* tmp = (double*)calloc(N * N, sizeof(double));
 
     // Generate convolution kernel
-    w = generate_kernel(w, kernel_size);
+    w = generate_kernel(w, KERNEL_SIZE);
 
     // Place orbiums
-    for (unsigned int o = 0; o < num_orbiums; o++) {
-        world = place_orbium(world, rows, cols, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
+    for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
+        world = place_orbium(world, N, N, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
+    double start = omp_get_wtime();
+
     // Lenia Simulation
-    for (unsigned int step = 0; step < steps; step++) {
+    for (unsigned int step = 0; step < NUM_STEPS; step++) {
         // Convolution
-        tmp = convolve2d(tmp, world, w, rows, cols, kernel_size, kernel_size);
+        tmp = convolve2d(tmp, world, w, N, N, KERNEL_SIZE, KERNEL_SIZE);
 
         // Evolution
-        for (unsigned int i = 0; i < rows; i++) {
-            for (unsigned int j = 0; j < cols; j++) {
-                world[i * rows + j] += dt * growth_lenia(tmp[i * rows + j]);
-                world[i * rows + j] = fmin(1, fmax(0, world[i * rows + j]));  // Clip between 0 and 1
+        for (unsigned int i = 0; i < N; i++) {
+            for (unsigned int j = 0; j < N; j++) {
+                world[i * N + j] += DT * growth_lenia(tmp[i * N + j]);
+                world[i * N + j] = fmin(1, fmax(0, world[i * N + j]));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
-                gif->frame[i * rows + j] = world[i * rows + j] * 255;
+                gif->frame[i * N + j] = world[i * N + j] * 255;
 #endif
             }
         }
@@ -136,21 +144,10 @@ double* evolve_lenia(const unsigned int rows, const unsigned int cols, const uns
 #ifdef GENERATE_GIF
     ge_close_gif(gif);
 #endif
+    double stop = omp_get_wtime();
+    printf("Time(full): %f s\n", stop - start);
     free(w);
     free(tmp);
-    return world;
-}
-
-// Place two orbiums in the world with different angles. (y, x, angle)
-// Orbiums size is 20x20, supproted angles are 0, 90, 180 and 270 degrees.
-struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, N / 3, 0}, {N / 3, 0, 180}};
-
-int main() {
-    double start = omp_get_wtime();
-    // Run the simulation
-    double* world = evolve_lenia(N, N, NUM_STEPS, DT, KERNEL_SIZE, orbiums, NUM_ORBIUMS);
-    double stop = omp_get_wtime();
-    printf("Execution time: %.3f\n", stop - start);
     free(world);
     return 0;
 }
