@@ -38,7 +38,13 @@ if not args.size:
 timings: dict[int, dict[str, list[float]]] = {}
 for size in args.size:
     timings[size] = {}
-    subprocess.run(["make", binary], check=True, env={"N": str(size), **os.environ})
+    subprocess.run(
+        ["make", binary],
+        check=True,
+        env={"N": str(size), **os.environ},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     for i in range(args.n):
         output = subprocess.check_output([f"./{binary}"]).decode("utf-8")
         # parse Time(...): ... s
