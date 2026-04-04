@@ -29,6 +29,11 @@ parser.add_argument(
     action="append",
     help="Sizes to test (default: 256,512,1024,2048,4096)",
 )
+parser.add_argument(
+    "--srun",
+    action="store_true",
+    help="Use srun to run the program (for cluster execution)",
+)
 args = parser.parse_args()
 
 binary = "lenia_cpu" if "cpu" in args.binary else "lenia_gpu"
@@ -46,7 +51,10 @@ for size in args.size:
         stderr=subprocess.DEVNULL,
     )
     for i in range(args.n):
-        output = subprocess.check_output([f"./{binary}"]).decode("utf-8")
+        cmd = [f"./{binary}"]
+        if args.srun:
+            cmd = ["srun"] + cmd
+        output = subprocess.check_output(cmd).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"
         times: dict[str, float] = {}
