@@ -7,13 +7,10 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=lenia_out.log
+#SBATCH --output=timings_gpu_1_baseline.log
 
 #LOAD MODULES
 module load CUDA
 
-#BUILD
-make lenia_gpu
-
 #RUN
-srun ./lenia_gpu
+./run.py gpu -n=20 --srun

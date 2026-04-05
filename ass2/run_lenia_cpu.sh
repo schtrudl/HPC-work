@@ -6,7 +6,6 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --output=timings_cpu_3_fused.log
 #SBATCH --hint=nomultithread
-#SBATCH --time=06:00:00
 
 # Set OpenMP environment variables for thread placement and binding
 export OMP_PLACES=cores
@@ -14,5 +13,5 @@ export OMP_PROC_BIND=close
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 #RUN
-./run.py cpu -n=5
+./run.py cpu -n=5 --srun
 
