@@ -3,8 +3,8 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=lenia_cpu
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --output=timings_cpu_1_baseline.log
+#SBATCH --cpus-per-task=16
+#SBATCH --output=timings_cpu_2_parallel.log
 #SBATCH --hint=nomultithread
 #SBATCH --time=06:00:00
 
@@ -14,5 +14,5 @@ export OMP_PROC_BIND=close
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 #RUN
-./run.py cpu -n=3
+./run.py cpu -n=5
 
