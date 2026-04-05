@@ -109,29 +109,33 @@ int main() {
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
+        // Convolution
+        // Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
+        OMP(parallel for)
+        for (usize i = 0; i < N; i++) {
+            for (usize j = 0; j < N; j++) {
+                f64 sum = 0;
+                for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
+                    for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
+                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + N + kri), (j - KERNEL_SIZE / 2 + N + kcj));
+                    }
+                }
+                tmp[i * N + j] = sum;
+            }
+        }
+
+        // Evolution
         OMP(parallel for)
         for (unsigned int i = 0; i < N; i++) {
             for (unsigned int j = 0; j < N; j++) {
-                // Convolution
-                // Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
-                f64 t = 0;
-                for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
-                    for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        t += w(ki, kj) * input((i - KERNEL_SIZE / 2 + N + kri), (j - KERNEL_SIZE / 2 + N + kcj));
-                    }
-                }
-                // Evolution
-                t = world[i * N + j] + DT * growth_lenia(t);
-                tmp[i * N + j] = fmin(1, fmax(0, t));  // Clip between 0 and 1
+                double t = world[i * N + j];
+                t += DT * growth_lenia(tmp[i * N + j]);
+                world[i * N + j] = fmin(1, fmax(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
-                gif->frame[i * N + j] = tmp[i * N + j] * 255;
+                gif->frame[i * N + j] = world[i * N + j] * 255;
 #endif
             }
         }
-        // Swap world and tmp
-        f64* swap = world;
-        world = tmp;
-        tmp = swap;
 #ifdef GENERATE_GIF
         ge_add_frame(gif, 5);
 #endif
