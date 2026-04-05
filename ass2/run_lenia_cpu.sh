@@ -4,7 +4,7 @@
 #SBATCH --job-name=lenia_cpu
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --output=timings_cpu_2_parallel.log
+#SBATCH --output=timings_cpu_3_fused.log
 #SBATCH --hint=nomultithread
 #SBATCH --time=06:00:00
 
