@@ -14,11 +14,6 @@ parser.add_argument(
     default=20,
     help="Number of times to repeat the execution for each image (default: 20)",
 )
-parser.add_argument(
-    "--bless",
-    action="store_true",
-    help="bless current images as result",
-)
 # valid binaries are lenia_cpu and lenia_gpu
 parser.add_argument(
     "binary",

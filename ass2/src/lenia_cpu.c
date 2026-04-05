@@ -25,6 +25,7 @@
 #define w(r, c) (w[(r) * KERNEL_SIZE + (c)])
 #define input(r, c) (world[((r) % N) * N + ((c) % N)])
 #define f64 double
+#define f32 float
 #define usize size_t
 #define OMP(x) DO_PRAGMA(omp x)
 #define DO_PRAGMA(x) _Pragma(#x)
