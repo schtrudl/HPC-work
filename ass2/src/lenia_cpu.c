@@ -12,12 +12,6 @@
 // Uncomment to generate gif animation
 // #define GENERATE_GIF
 
-// For prettier indexing syntax
-#define w(r, c) (w[(r) * w_cols + (c)])
-#define input(r, c) (input[((r) % rows) * cols + ((c) % cols)])
-#define f64 double
-#define usize size_t
-
 #ifndef N
     #define N 256
 #endif
@@ -26,6 +20,14 @@
 #define DT 0.1
 #define KERNEL_SIZE 26
 #define NUM_ORBIUMS 2
+
+// For prettier indexing syntax
+#define w(r, c) (w[(r) * KERNEL_SIZE + (c)])
+#define input(r, c) (world[((r) % N) * N + ((c) % N)])
+#define f64 double
+#define usize size_t
+#define OMP(x) DO_PRAGMA(omp x)
+#define DO_PRAGMA(x) _Pragma(#x)
 
 struct orbium_coo {
     int row;
@@ -73,25 +75,6 @@ f64* generate_kernel(f64* const K, const usize size) {
     return K;
 }
 
-// Function to perform convolution on input using kernel w
-// Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
-inline f64* convolve2d(f64* const result, const f64* const input, const f64* const w, const usize rows, const usize cols, const usize w_rows, const usize w_cols) {
-    if (result != NULL && input != NULL && w != NULL) {
-        for (usize i = 0; i < rows; i++) {
-            for (usize j = 0; j < cols; j++) {
-                f64 sum = 0;
-                for (int ki = w_rows - 1, kri = 0; ki >= 0; ki--, kri++) {
-                    for (int kj = w_cols - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        sum += w(ki, kj) * input((i - w_rows / 2 + rows + kri), (j - w_cols / 2 + cols + kcj));
-                    }
-                }
-                result[i * cols + j] = sum;
-            }
-        }
-    }
-    return result;
-}
-
 // Place two orbiums in the world with different angles. (y, x, angle)
 // Orbiums size is 20x20, supproted angles are 0, 90, 180 and 270 degrees.
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, N / 3, 0}, {N / 3, 0, 180}};
@@ -127,13 +110,27 @@ int main() {
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
         // Convolution
-        tmp = convolve2d(tmp, world, w, N, N, KERNEL_SIZE, KERNEL_SIZE);
+        // Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
+        OMP(parallel for)
+        for (usize i = 0; i < N; i++) {
+            for (usize j = 0; j < N; j++) {
+                f64 sum = 0;
+                for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
+                    for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
+                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + N + kri), (j - KERNEL_SIZE / 2 + N + kcj));
+                    }
+                }
+                tmp[i * N + j] = sum;
+            }
+        }
 
         // Evolution
+        OMP(parallel for) // Parallelize the evolution step
         for (unsigned int i = 0; i < N; i++) {
             for (unsigned int j = 0; j < N; j++) {
-                world[i * N + j] += DT * growth_lenia(tmp[i * N + j]);
-                world[i * N + j] = fmin(1, fmax(0, world[i * N + j]));  // Clip between 0 and 1
+                double t = world[i * N + j];
+                t += DT * growth_lenia(tmp[i * N + j]);
+                world[i * N + j] = fmin(1, fmax(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
                 gif->frame[i * N + j] = world[i * N + j] * 255;
 #endif
