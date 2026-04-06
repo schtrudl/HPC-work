@@ -42,26 +42,26 @@ inline f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
 }
 
 // Function for growth criteria
-f32 growth_lenia(const f32 u) {
-    f32 mu = 0.15;
-    f32 sigma = 0.015;
-    return -1 + 2 * gauss(u, mu, sigma);  // Baseline -1, peak +1
+inline f32 growth_lenia(const f32 u) {
+    f32 mu = 0.15f;
+    f32 sigma = 0.015f;
+    return -1.0f + 2.0f * gauss(u, mu, sigma);  // Baseline -1, peak +1
 }
 
 // Function to generate convolution kernel
 f32* generate_kernel(f32* const K, const usize size) {
     // Construct ring convolution filter
-    const f32 mu = 0.5;
-    const f32 sigma = 0.15;
+    const f32 mu = 0.5f;
+    const f32 sigma = 0.15f;
     const int r = size / 2;
-    f32 sum = 0;
+    f32 sum = 0.0f;
     if (K != NULL) {
         for (int y = -r; y < r; y++) {
             for (int x = -r; x < r; x++) {
-                f32 distance = sqrt((1 + x) * (1 + x) + (1 + y) * (1 + y)) / r;
+                f32 distance = sqrtf((1.0f + x) * (1.0f + x) + (1.0f + y) * (1.0f + y)) / r;
                 K[(y + r) * size + x + r] = gauss(distance, mu, sigma);
-                if (distance > 1) {
-                    K[(y + r) * size + x + r] = 0;  // Cut at d=1
+                if (distance > 1.0f) {
+                    K[(y + r) * size + x + r] = 0.0f;  // Cut at d=1
                 }
                 sum += K[(y + r) * size + x + r];
             }
@@ -129,7 +129,7 @@ int main() {
         OMP(parallel for)
         for (unsigned int i = 0; i < N; i++) {
             for (unsigned int j = 0; j < N; j++) {
-                double t = world[i * N + j];
+                f32 t = world[i * N + j];
                 t += DT * growth_lenia(tmp[i * N + j]);
                 world[i * N + j] = fmin(1, fmax(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
