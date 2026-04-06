@@ -12,8 +12,8 @@
 // Uncomment to generate gif animation
 // #define GENERATE_GIF
 
-#ifndef N
-    #define N 256
+#ifndef SIZE
+    #define SIZE 256
 #endif
 
 #define NUM_STEPS 100
@@ -23,7 +23,7 @@
 
 // For prettier indexing syntax
 #define w(r, c) (w[(r) * KERNEL_SIZE + (c)])
-#define input(r, c) (world[((r) % N) * N + ((c) % N)])
+#define input(r, c) (world[((r) % SIZE) * SIZE + ((c) % SIZE)])
 #define f64 double
 #define f32 float
 #define usize size_t
@@ -78,14 +78,14 @@ f32* generate_kernel(f32* const K, const usize size) {
 
 // Place two orbiums in the world with different angles. (y, x, angle)
 // Orbiums size is 20x20, supproted angles are 0, 90, 180 and 270 degrees.
-struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, N / 3, 0}, {N / 3, 0, 180}};
+struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
 
 int main() {
 #ifdef GENERATE_GIF
     ge_GIF* gif = ge_new_gif(
         "lenia.gif", /* file name */
-        N,
-        N, /* canvas size */
+        SIZE,
+        SIZE, /* canvas size */
         inferno_pallete, /*pallete*/
         8, /* palette depth == log2(# of colors) */
         -1, /* no transparency */
@@ -95,15 +95,15 @@ int main() {
 
     // Allocate memory
     f32* w = (f32*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(f32));
-    f32* world = (f32*)calloc(N * N, sizeof(f32));
-    f32* tmp = (f32*)calloc(N * N, sizeof(f32));
+    f32* world = (f32*)calloc(SIZE * SIZE, sizeof(f32));
+    f32* tmp = (f32*)calloc(SIZE * SIZE, sizeof(f32));
 
     // Generate convolution kernel
     w = generate_kernel(w, KERNEL_SIZE);
 
     // Place orbiums
     for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
-        world = place_orbium(world, N, N, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
+        world = place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
     f32 start = omp_get_wtime();
@@ -113,27 +113,27 @@ int main() {
         // Convolution
         // Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
         OMP(parallel for)
-        for (usize i = 0; i < N; i++) {
-            for (usize j = 0; j < N; j++) {
+        for (usize i = 0; i < SIZE; i++) {
+            for (usize j = 0; j < SIZE; j++) {
                 f32 sum = 0;
                 for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
                     for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + N + kri), (j - KERNEL_SIZE / 2 + N + kcj));
+                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
                     }
                 }
-                tmp[i * N + j] = sum;
+                tmp[i * SIZE + j] = sum;
             }
         }
 
         // Evolution
         OMP(parallel for)
-        for (unsigned int i = 0; i < N; i++) {
-            for (unsigned int j = 0; j < N; j++) {
-                f32 t = world[i * N + j];
-                t += DT * growth_lenia(tmp[i * N + j]);
-                world[i * N + j] = fmin(1, fmax(0, t));  // Clip between 0 and 1
+        for (unsigned int i = 0; i < SIZE; i++) {
+            for (unsigned int j = 0; j < SIZE; j++) {
+                f32 t = world[i * SIZE + j];
+                t += DT * growth_lenia(tmp[i * SIZE + j]);
+                world[i * SIZE + j] = fminf(1, fmaxf(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
-                gif->frame[i * N + j] = world[i * N + j] * 255;
+                gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
 #endif
             }
         }

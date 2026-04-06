@@ -41,7 +41,7 @@ for size in args.size:
     subprocess.run(
         ["make", binary],
         check=True,
-        env={"N": str(size), **os.environ},
+        env={"SIZE": str(size), **os.environ},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
