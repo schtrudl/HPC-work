@@ -15,4 +15,4 @@ module load CUDA
 #RUN
 #./run.py gpu -n=20 --srun
 module load FFmpeg
-./verify.py gpu
+./verify.py --srun gpu

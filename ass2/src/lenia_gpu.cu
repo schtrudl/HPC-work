@@ -76,9 +76,10 @@ f32* generate_kernel(f32* const K, const usize size) {
 }
 
 __global__ void conv_step(f32* world, f32* w, f32* tmp) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
-    int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
-    int idx = j * SIZE + i;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= SIZE || j >= SIZE) return;
+    int idx = i * SIZE + j;
 
     f32 sum = 0;
     for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
@@ -90,12 +91,14 @@ __global__ void conv_step(f32* world, f32* w, f32* tmp) {
 }
 
 __global__ void next_step(f32* world, f32* tmp) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
-    int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= SIZE || j >= SIZE) return;
+    int idx = i * SIZE + j;
 
-    f32 t = world[i * SIZE + j];
-    t += DT * growth_lenia(tmp[i * SIZE + j]);
-    world[i * SIZE + j] = fminf(1, fmaxf(0, t));
+    f32 t = world[idx];
+    t += DT * growth_lenia(tmp[idx]);
+    world[idx] = fminf(1, fmaxf(0, t));
 }
 
 // Place two orbiums in the world with different angles. (y, x, angle)

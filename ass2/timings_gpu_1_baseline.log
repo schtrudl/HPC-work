@@ -1,0 +1,1 @@
+nvcc -DSIZE=64 -DGENERATE_GIF -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp ./src/lenia_gpu.cu -o lenia_gpu -lm
