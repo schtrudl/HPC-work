@@ -86,7 +86,7 @@ int main() {
         "lenia.gif", /* file name */
         SIZE,
         SIZE, /* canvas size */
-        inferno_pallete, /*pallete*/
+        (uint8_t*)inferno_pallete, /*pallete*/
         8, /* palette depth == log2(# of colors) */
         -1, /* no transparency */
         0 /* infinite loop */
