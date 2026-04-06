@@ -108,7 +108,7 @@ int main() {
         "lenia.gif", /* file name */
         SIZE,
         SIZE, /* canvas size */
-        inferno_pallete, /*pallete*/
+        (uint8_t*)inferno_pallete, /*pallete*/
         8, /* palette depth == log2(# of colors) */
         -1, /* no transparency */
         0 /* infinite loop */
@@ -132,7 +132,8 @@ int main() {
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
 
-    f32 d_w[KERNEL_SIZE * KERNEL_SIZE];
+    f32* d_w;
+    checkCudaErrors(cudaMalloc((void**)&d_w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
     checkCudaErrors(cudaMemcpy(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32), cudaMemcpyHostToDevice));
 
     f32 *d_buffer, *d_buffer2;
@@ -176,6 +177,9 @@ int main() {
     float time;
     checkCudaErrors(cudaEventElapsedTime(&time, start, stop));
     printf("Time(full): %f s\n", time / 1000.0);
+    cudaFree(d_w);
+    cudaFree(d_buffer);
+    cudaFree(d_buffer2);
     free(w);
     free(tmp);
     free(world);

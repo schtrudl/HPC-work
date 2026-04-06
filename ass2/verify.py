@@ -33,8 +33,6 @@ subprocess.run(
     ["make", binary],
     check=True,
     env={"GENERATE_GIF": "1", "SIZE": "64", **os.environ},
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
 )
 cmd = [f"./{binary}"]
 if args.srun:
@@ -64,9 +62,10 @@ else:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    subprocess.run(
-        ["xdg-open", "report.html"],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if not args.srun:
+        subprocess.run(
+            ["xdg-open", "report.html"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
