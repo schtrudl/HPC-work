@@ -2,7 +2,7 @@
 
 #SBATCH --reservation=fri
 #SBATCH --partition=gpu
-#SBATCH --job-name=lenia
+#SBATCH --job-name=lenia_gpu
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
@@ -13,6 +13,6 @@
 module load CUDA
 
 #RUN
-#./run.py gpu -n=20 --srun
-module load FFmpeg
-./verify.py --srun gpu
+./run.py gpu -n=20 --srun
+#module load FFmpeg
+#./verify.py --srun gpu
