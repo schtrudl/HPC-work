@@ -31,8 +31,8 @@ parser.add_argument(
 parser.add_argument(
     "--significance-threshold",
     type=float,
-    default=7.0,
-    help="number of standard deviations for significance (default: 7.0)",
+    default=2.0,
+    help="number of standard deviations for significance (default: 2.0)",
 )
 parser.add_argument(
     "--speedup",
@@ -90,7 +90,7 @@ for image in baseline_timings:
         diff_sigma = math.sqrt(baseline_sigma**2 + current_sigma**2)
         diff_percent = (diff / baseline_time) * 100 if baseline_time != 0 else 0
         sig_marker = ""
-        # Check significance: is |diff| > 7*σ_diff
+        # Check significance: is |diff| > σ_diff * significance_threshold
         significant = (
             diff_sigma > 0 and abs(diff) > args.significance_threshold * diff_sigma
         )
