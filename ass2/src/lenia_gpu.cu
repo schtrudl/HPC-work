@@ -13,7 +13,10 @@
 // #define GENERATE_GIF
 
 #ifndef SIZE
-    #define SIZE 256
+    #define SIZE 64
+#endif
+#ifndef BLOCK_SIZE
+    #define BLOCK_SIZE 16
 #endif
 
 #define NUM_STEPS 100
@@ -101,6 +104,21 @@ __global__ void next_step(f32* world, f32* tmp) {
     world[idx] = fminf(1, fmaxf(0, t));
 }
 
+__global__ void whole_step(f32* world, f32* w, f32* new_world) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= SIZE || j >= SIZE) return;
+
+    f32 sum = 0;
+    for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
+        for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
+            sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+        }
+    }
+    int idx = i * SIZE + j;
+    new_world[idx] = fminf(1, fmaxf(0, world[idx] + DT * growth_lenia(sum)));
+}
+
 // Place two orbiums in the world with different angles. (y, x, angle)
 // Orbiums size is 20x20, supproted angles are 0, 90, 180 and 270 degrees.
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
@@ -143,8 +161,27 @@ int main() {
     checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
     checkCudaErrors(cudaMalloc((void**)&d_buffer2, (SIZE) * (SIZE) * sizeof(f32)));
 
-    dim3 blockSize(16, 16);
-    dim3 gridSize((SIZE + blockSize.x - 1) / blockSize.x, (SIZE + blockSize.y - 1) / blockSize.y);
+    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    // (next) multiple of block size to cover the whole grid
+    /*
+>>> BLOCK_SIZE = 16
+>>> N = 63
+>>> (N-1)//BLOCK_SIZE+1
+4
+>>> (N+BLOCK_SIZE-1)//BLOCK_SIZE
+4
+>>> N = 64
+>>> (N+BLOCK_SIZE-1)//BLOCK_SIZE
+4
+>>> (N-1)//BLOCK_SIZE+1
+4
+>>> N = 65
+>>> (N+BLOCK_SIZE-1)//BLOCK_SIZE
+5
+>>> (N-1)//BLOCK_SIZE+1
+5
+    */
+    dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
 
     checkCudaErrors(cudaEventRecord(start));
 
@@ -152,6 +189,7 @@ int main() {
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
+        /*
         // Convolution
         conv_step<<<gridSize, blockSize>>>(d_buffer, d_w, d_buffer2);
         checkCudaErrors(cudaGetLastError());
@@ -159,6 +197,15 @@ int main() {
         // Evolution
         next_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
         checkCudaErrors(cudaGetLastError());
+        */
+
+        // Convolution + Evolution fused
+        whole_step<<<gridSize, blockSize>>>(d_buffer, d_w, d_buffer2);
+        checkCudaErrors(cudaGetLastError());
+        // Swap buffers
+        f32* temp = d_buffer;
+        d_buffer = d_buffer2;
+        d_buffer2 = temp;
 
 #ifdef GENERATE_GIF
         checkCudaErrors(cudaMemcpy(world, d_buffer, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyDeviceToHost));
