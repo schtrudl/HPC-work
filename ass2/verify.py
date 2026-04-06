@@ -32,7 +32,7 @@ if os.path.exists("lenia.gif"):
 subprocess.run(
     ["make", binary],
     check=True,
-    env={"GENERATE_GIF": "1", "N": "64", **os.environ},
+    env={"GENERATE_GIF": "1", "SIZE": "64", **os.environ},
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
 )
