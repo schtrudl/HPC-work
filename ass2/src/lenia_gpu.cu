@@ -152,6 +152,9 @@ int main() {
     cudaEvent_t start, stop;
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
+    cudaEvent_t start_compute, stop_compute;
+    checkCudaErrors(cudaEventCreate(&start_compute));
+    checkCudaErrors(cudaEventCreate(&stop_compute));
 
     f32* d_w;
     checkCudaErrors(cudaMalloc((void**)&d_w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
@@ -184,8 +187,10 @@ int main() {
     dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
 
     checkCudaErrors(cudaEventRecord(start));
-
+    // XXX: How many memory transfers do we need to time?
     checkCudaErrors(cudaMemcpy(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
+
+    checkCudaErrors(cudaEventRecord(start_compute));
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
@@ -218,12 +223,15 @@ int main() {
 #endif
     }
 
+    checkCudaErrors(cudaEventRecord(stop_compute));
 #ifdef GENERATE_GIF
     ge_close_gif(gif);
 #endif
     checkCudaErrors(cudaMemcpy(world, d_buffer, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaEventRecord(stop));
     checkCudaErrors(cudaEventSynchronize(stop));
+    checkCudaErrors(cudaEventElapsedTime(&time, start_compute, stop_compute));
+    printf("Time(compute): %f s\n", time / 1000.0);
     float time;
     checkCudaErrors(cudaEventElapsedTime(&time, start, stop));
     printf("Time(full): %f s\n", time / 1000.0);
