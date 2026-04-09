@@ -158,7 +158,6 @@ int main() {
 
     f32* d_w;
     checkCudaErrors(cudaMalloc((void**)&d_w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
-    checkCudaErrors(cudaMemcpy(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32), cudaMemcpyHostToDevice));
 
     f32 *d_buffer, *d_buffer2;
     checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
@@ -187,9 +186,9 @@ int main() {
     dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
 
     checkCudaErrors(cudaEventRecord(start));
-    // XXX: How many memory transfers do we need to time?
+    // TODO(perf): init as const on GPU
+    checkCudaErrors(cudaMemcpy(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
-
     checkCudaErrors(cudaEventRecord(start_compute));
 
     // Lenia Simulation

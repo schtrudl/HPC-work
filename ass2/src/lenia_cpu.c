@@ -43,6 +43,7 @@ inline f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
 
 // Function for growth criteria
 inline f32 growth_lenia(const f32 u) {
+    if (u == 0.0f) return -1.0f;  // Fast path for empty cells
     f32 mu = 0.15f;
     f32 sigma = 0.015f;
     return -1.0f + 2.0f * gauss(u, mu, sigma);  // Baseline -1, peak +1
