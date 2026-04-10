@@ -109,7 +109,7 @@ int main() {
         world = place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
-    f32 start = omp_get_wtime();
+    f64 start = omp_get_wtime();
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
@@ -147,7 +147,7 @@ int main() {
 #ifdef GENERATE_GIF
     ge_close_gif(gif);
 #endif
-    f32 stop = omp_get_wtime();
+    f64 stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
     free(w);
     free(tmp);

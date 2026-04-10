@@ -136,6 +136,8 @@ int main() {
     );
 #endif
 
+    float time;
+
     // Allocate memory
     f32* w = (f32*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(f32));
     f32* world = (f32*)calloc(SIZE * SIZE, sizeof(f32));
@@ -231,7 +233,6 @@ int main() {
     checkCudaErrors(cudaEventSynchronize(stop));
     checkCudaErrors(cudaEventElapsedTime(&time, start_compute, stop_compute));
     printf("Time(compute): %f s\n", time / 1000.0);
-    float time;
     checkCudaErrors(cudaEventElapsedTime(&time, start, stop));
     printf("Time(full): %f s\n", time / 1000.0);
     cudaFree(d_w);
