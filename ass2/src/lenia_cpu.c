@@ -38,14 +38,16 @@ struct orbium_coo {
 
 // Function to calculate Gaussian
 inline f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
-    return expf(-0.5f * powf((x - mu) / sigma, 2));
+    f32 z = (x - mu) / sigma;
+    return expf(-0.5f * z * z);
 }
 
 // Function for growth criteria
 inline f32 growth_lenia(const f32 u) {
+    // floats???
     if (u == 0.0f) return -1.0f;  // Fast path for empty cells
-    f32 mu = 0.15f;
-    f32 sigma = 0.015f;
+    const f32 mu = 0.15f;
+    const f32 sigma = 0.015f;
     return -1.0f + 2.0f * gauss(u, mu, sigma);  // Baseline -1, peak +1
 }
 
