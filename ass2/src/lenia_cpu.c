@@ -4,6 +4,7 @@
 #include <math.h>
 #include "orbium.h"
 #include "gifenc.h"
+#include "growth_lut.h"
 
 // Include CUDA headers
 // #include <cuda_runtime.h>
@@ -141,7 +142,7 @@ int main() {
         for (unsigned int i = 0; i < SIZE; i++) {
             for (unsigned int j = 0; j < SIZE; j++) {
                 f32 t = world[i * SIZE + j];
-                t += DT * growth_lenia_poly(tmp[i * SIZE + j]);
+                t += DT * growth_lenia_lut(tmp[i * SIZE + j]);
                 world[i * SIZE + j] = fminf(1, fmaxf(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
                 gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
