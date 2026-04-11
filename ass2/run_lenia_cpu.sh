@@ -3,8 +3,8 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=lenia_cpu
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --output=timings_cpu_x.log
+#SBATCH --cpus-per-task=64
+#SBATCH --output=timings_cpu_c64.log
 #SBATCH --hint=nomultithread
 #SBATCH --time=01:00:00
 
