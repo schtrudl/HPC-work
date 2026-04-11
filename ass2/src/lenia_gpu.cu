@@ -80,7 +80,7 @@ f32* generate_kernel(f32* const K, const usize size) {
 
 __constant__ f32 d_w[KERNEL_SIZE * KERNEL_SIZE];  // Convolution kernel on device
 
-__global__ void conv_step(f32* world, f32* w, f32* tmp) {
+__global__ void conv_step(f32* world, f32* tmp) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i >= SIZE || j >= SIZE) return;
@@ -89,7 +89,7 @@ __global__ void conv_step(f32* world, f32* w, f32* tmp) {
     f32 sum = 0;
     for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
         for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-            sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+            sum += d_w[ki * KERNEL_SIZE + kj] * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
         }
     }
     tmp[idx] = sum;
@@ -106,7 +106,7 @@ __global__ void next_step(f32* world, f32* tmp) {
     world[idx] = fminf(1, fmaxf(0, t));
 }
 
-__global__ void whole_step(f32* world, f32* w, f32* new_world) {
+__global__ void whole_step(f32* world, f32* new_world) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i >= SIZE || j >= SIZE) return;
@@ -114,7 +114,7 @@ __global__ void whole_step(f32* world, f32* w, f32* new_world) {
     f32 sum = 0;
     for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
         for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-            sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+            sum += d_w[ki * KERNEL_SIZE + kj] * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
         }
     }
     int idx = i * SIZE + j;
@@ -197,7 +197,7 @@ int main() {
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
         /*
         // Convolution
-        conv_step<<<gridSize, blockSize>>>(d_buffer, d_w, d_buffer2);
+        conv_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
         checkCudaErrors(cudaGetLastError());
 
         // Evolution
@@ -206,7 +206,7 @@ int main() {
         */
 
         // Convolution + Evolution fused
-        whole_step<<<gridSize, blockSize>>>(d_buffer, d_w, d_buffer2);
+        whole_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
         checkCudaErrors(cudaGetLastError());
         // Swap buffers
         f32* temp = d_buffer;
