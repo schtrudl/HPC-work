@@ -16,7 +16,7 @@ endif
 all: lenia_cpu lenia_gpu
 
 lenia_cpu:
-	gcc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native --openmp ./src/lenia_cpu.c -o lenia_cpu -lm
+	gcc -ffast-math -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native --openmp ./src/lenia_cpu.c -o lenia_cpu -lm
 
 lenia_gpu:
 	$(CC) -DSIZE=$(SIZE) $(GIF_FLAG) $(CFLAGS) ./src/lenia_gpu.cu -o lenia_gpu $(LDLIBS)
