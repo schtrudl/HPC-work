@@ -78,6 +78,8 @@ f32* generate_kernel(f32* const K, const usize size) {
     return K;
 }
 
+__constant__ f32 d_w[KERNEL_SIZE * KERNEL_SIZE];  // Convolution kernel on device
+
 __global__ void conv_step(f32* world, f32* w, f32* tmp) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -158,8 +160,7 @@ int main() {
     checkCudaErrors(cudaEventCreate(&start_compute));
     checkCudaErrors(cudaEventCreate(&stop_compute));
 
-    f32* d_w;
-    checkCudaErrors(cudaMalloc((void**)&d_w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
 
     f32 *d_buffer, *d_buffer2;
     checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
@@ -189,7 +190,6 @@ int main() {
 
     checkCudaErrors(cudaEventRecord(start));
     // TODO(perf): init as const on GPU
-    checkCudaErrors(cudaMemcpy(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaEventRecord(start_compute));
 
@@ -235,7 +235,6 @@ int main() {
     printf("Time(compute): %f s\n", time / 1000.0);
     checkCudaErrors(cudaEventElapsedTime(&time, start, stop));
     printf("Time(full): %f s\n", time / 1000.0);
-    cudaFree(d_w);
     cudaFree(d_buffer);
     cudaFree(d_buffer2);
     free(w);
