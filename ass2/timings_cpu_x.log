@@ -1,0 +1,10 @@
+Run 64
+Run 32
+Run 16
+srun: Step created for StepId=66115347.55
+Run 8
+srun: Step created for StepId=66115347.91
+srun: Step created for StepId=66115347.92
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+[2026-04-11T10:40:37.870] error: *** JOB 66115347 ON wn101 CANCELLED AT 2026-04-11T10:40:37 DUE to SIGNAL Terminated ***
+[2026-04-11T10:40:37.871] error: *** STEP 66115347.93 ON wn101 CANCELLED AT 2026-04-11T10:40:37 DUE to SIGNAL Terminated ***
