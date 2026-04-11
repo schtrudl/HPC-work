@@ -37,6 +37,15 @@ struct orbium_coo {
     int angle;
 };
 
+// Sparse kernel entry (for skipping zeros)
+struct kernel_entry {
+    int di, dj;  // Offset from center
+    f32 weight;
+};
+
+// Max possible entries (full kernel)
+#define MAX_KERNEL_ENTRIES (KERNEL_SIZE * KERNEL_SIZE)
+
 // Function to calculate Gaussian
 inline f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
     f32 z = (x - mu) / sigma;
@@ -113,6 +122,23 @@ int main() {
     // Generate convolution kernel
     w = generate_kernel(w, KERNEL_SIZE);
 
+    // Build sparse kernel (skip zero entries)
+    struct kernel_entry* sparse_k = (struct kernel_entry*)malloc(MAX_KERNEL_ENTRIES * sizeof(struct kernel_entry));
+    int num_entries = 0;
+    const int half = KERNEL_SIZE / 2;
+    for (int ki = 0; ki < KERNEL_SIZE; ki++) {
+        for (int kj = 0; kj < KERNEL_SIZE; kj++) {
+            f32 weight = w(ki, kj);
+            if (weight != 0.0f) {
+                sparse_k[num_entries].di = half - 1 - ki;
+                sparse_k[num_entries].dj = half - 1 - kj;
+                sparse_k[num_entries].weight = weight;
+                num_entries++;
+            }
+        }
+    }
+    printf("Sparse kernel: %d/%d entries (%.1f%% savings)\n", num_entries, KERNEL_SIZE * KERNEL_SIZE, 100.0 * (1.0 - (double)num_entries / (KERNEL_SIZE * KERNEL_SIZE)));
+
     // Place orbiums
     for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
         world = place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
@@ -122,16 +148,13 @@ int main() {
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
-        // Convolution
-        // Note that the kernel is flipped for convolution as per definition, and we use modular indexing for toroidal world
+        // Convolution with sparse kernel
         OMP(parallel for)
         for (usize i = 0; i < SIZE; i++) {
             for (usize j = 0; j < SIZE; j++) {
                 f32 sum = 0;
-                for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
-                    for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
-                    }
+                for (int k = 0; k < num_entries; k++) {
+                    sum += sparse_k[k].weight * input((i + sparse_k[k].di + SIZE), (j + sparse_k[k].dj + SIZE));
                 }
                 tmp[i * SIZE + j] = sum;
             }
@@ -158,6 +181,7 @@ int main() {
 #endif
     f64 stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
+    free(sparse_k);
     free(w);
     free(tmp);
     free(world);
