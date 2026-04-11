@@ -4,7 +4,7 @@
 #SBATCH --job-name=lenia_cpu
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --output=timings_cpu_6_poly.log
+#SBATCH --output=timings_cpu_7_LUT.log
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
