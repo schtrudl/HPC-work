@@ -1,15 +1,15 @@
 256:
-  compute: 0.0291 s ± 0.0001 s
-  full: 0.0295 s ± 0.0002 s
+  compute: 0.2327 s ± 0.0148 s
+  full: 0.2332 s ± 0.0148 s
 512:
-  compute: 0.0776 s ± 0.0054 s
-  full: 0.0788 s ± 0.0054 s
+  compute: 0.7768 s ± 0.0164 s
+  full: 0.7787 s ± 0.0166 s
 1024:
-  compute: 0.2956 s ± 0.0003 s
-  full: 0.2982 s ± 0.0005 s
+  compute: 2.9594 s ± 0.0008 s
+  full: 2.9635 s ± 0.0008 s
 2048:
-  compute: 1.1581 s ± 0.0125 s
-  full: 1.1713 s ± 0.0137 s
+  compute: 11.5600 s ± 0.0213 s
+  full: 11.5770 s ± 0.0213 s
 4096:
-  compute: 4.6008 s ± 0.0004 s
-  full: 4.6531 s ± 0.0013 s
+  compute: 46.0075 s ± 0.0008 s
+  full: 46.0762 s ± 0.0011 s

@@ -6,6 +6,7 @@ SIZE ?= 256
 # Compiler flags
 LDLIBS = -lm
 CFLAGS = -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp
+#CFLAGS = -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 --use_fast_math -Xcompiler --openmp,-march=native,-ffast-math
 
 ifdef GENERATE_GIF
 GIF_FLAG = -DGENERATE_GIF

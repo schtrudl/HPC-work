@@ -96,7 +96,7 @@ int main() {
             for (usize j = 0; j < SIZE; j++) {
                 f32 sum = 0;
                 for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-                    sum += SPARSE_K[k].weight * input((i + SPARSE_K[k].di + SIZE), (j + SPARSE_K[k].dj + SIZE));
+                    sum += sparse_kernel[k].weight * input((i + sparse_kernel[k].di + SIZE), (j + sparse_kernel[k].dj + SIZE));
                 }
                 tmp[i * SIZE + j] = sum;
             }

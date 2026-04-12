@@ -8,6 +8,7 @@
 // Include CUDA headers
 #include <cuda_runtime.h>
 #include "helper_cuda.h"
+#include "const_kernel.h"
 
 // Uncomment to generate gif animation
 // #define GENERATE_GIF
@@ -19,7 +20,7 @@
     #define BLOCK_SIZE 16
 #endif
 
-#define NUM_STEPS 100
+#define NUM_STEPS 1000
 #define DT 0.1
 #define KERNEL_SIZE 26
 #define NUM_ORBIUMS 2
@@ -40,7 +41,8 @@ struct orbium_coo {
 
 // Function to calculate Gaussian
 __host__ __device__ __forceinline__ f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
-    return expf(-0.5f * powf((x - mu) / sigma, 2));
+    f32 z = (x - mu) / sigma;
+    return expf(-0.5f * z * z);
 }
 
 // Function for growth criteria
@@ -48,6 +50,14 @@ __host__ __device__ __forceinline__ f32 growth_lenia(const f32 u) {
     f32 mu = 0.15f;
     f32 sigma = 0.015f;
     return -1.0f + 2.0f * gauss(u, mu, sigma);  // Baseline -1, peak +1
+}
+
+// Polynomial approximation of growth_lenia (max error: 1.26e-05)
+__host__ __device__ __forceinline__ f32 growth_lenia_poly(const f32 u) {
+    const f32 mu = 0.15f, sigma = 0.015f;
+    if (u < 0.09f || u > 0.21f) return -1.0f;
+    const f32 t = (u - mu) / sigma, t2 = t * t;
+    return ((((((((((1.5164566482e-11f) * t2 + (-1.5024997416e-09f)) * t2 + (6.7570921873e-08f)) * t2 + (-1.8452074685e-06f)) * t2 + (3.4634562942e-05f)) * t2 + (-4.7938982646e-04f)) * t2 + (5.0822995568e-03f)) * t2 + (-4.1438623715e-02f)) * t2 + (2.4978575127e-01f)) * t2 + (-9.9992089585e-01f)) * t2 + (9.9999515209e-01f);
 }
 
 // Function to generate convolution kernel
@@ -112,10 +122,8 @@ __global__ void whole_step(f32* world, f32* new_world) {
     if (i >= SIZE || j >= SIZE) return;
 
     f32 sum = 0;
-    for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
-        for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-            sum += d_w[ki * KERNEL_SIZE + kj] * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
-        }
+    for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
+        sum += d_sparse_k[k].weight * input((i + d_sparse_k[k].di + SIZE), (j + d_sparse_k[k].dj + SIZE));
     }
     int idx = i * SIZE + j;
     new_world[idx] = fminf(1, fmaxf(0, world[idx] + DT * growth_lenia(sum)));
@@ -141,12 +149,8 @@ int main() {
     float time;
 
     // Allocate memory
-    f32* w = (f32*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(f32));
     f32* world = (f32*)calloc(SIZE * SIZE, sizeof(f32));
     f32* tmp = (f32*)calloc(SIZE * SIZE, sizeof(f32));
-
-    // Generate convolution kernel
-    w = generate_kernel(w, KERNEL_SIZE);
 
     // Place orbiums
     for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
@@ -159,8 +163,7 @@ int main() {
     cudaEvent_t start_compute, stop_compute;
     checkCudaErrors(cudaEventCreate(&start_compute));
     checkCudaErrors(cudaEventCreate(&stop_compute));
-
-    checkCudaErrors(cudaMemcpyToSymbol(d_w, w, KERNEL_SIZE * KERNEL_SIZE * sizeof(f32)));
+    init_kernel_const();
 
     f32 *d_buffer, *d_buffer2;
     checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
@@ -189,7 +192,6 @@ int main() {
     dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
 
     checkCudaErrors(cudaEventRecord(start));
-    // TODO(perf): init as const on GPU
     checkCudaErrors(cudaMemcpy(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaEventRecord(start_compute));
 
@@ -237,7 +239,6 @@ int main() {
     printf("Time(full): %f s\n", time / 1000.0);
     cudaFree(d_buffer);
     cudaFree(d_buffer2);
-    free(w);
     free(tmp);
     free(world);
     return 0;
