@@ -117,15 +117,15 @@ __global__ void next_step(f32* world, f32* tmp) {
 }
 
 __global__ void whole_step(f32* world, f32* new_world) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    if (i >= SIZE || j >= SIZE) return;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= SIZE || y >= SIZE) return;
 
     f32 sum = 0;
     for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-        sum += d_sparse_k[k].weight * input((i + d_sparse_k[k].di + SIZE), (j + d_sparse_k[k].dj + SIZE));
+        sum += d_sparse_k[k].weight * input((y + d_sparse_k[k].di + SIZE), (x + d_sparse_k[k].dj + SIZE));
     }
-    int idx = i * SIZE + j;
+    int idx = y * SIZE + x;
     new_world[idx] = fminf(1, fmaxf(0, world[idx] + DT * growth_lenia(sum)));
 }
 
