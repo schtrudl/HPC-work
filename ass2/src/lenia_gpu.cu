@@ -23,6 +23,7 @@
 #define NUM_STEPS 1000
 #define DT 0.1
 #define KERNEL_SIZE 26
+#define HALO (KERNEL_SIZE / 2)  // 13
 #define NUM_ORBIUMS 2
 
 // For prettier indexing syntax
@@ -88,42 +89,31 @@ f32* generate_kernel(f32* const K, const usize size) {
     return K;
 }
 
-__constant__ f32 d_w[KERNEL_SIZE * KERNEL_SIZE];  // Convolution kernel on device
+__global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
+    extern __shared__ f32 world_tile[];  // tile_h * tile_w
 
-__global__ void conv_step(f32* world, f32* tmp) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x >= SIZE || y >= SIZE) return;
-    int idx = y * SIZE + x;
+    const int block_y = blockIdx.y * blockDim.y;
+    const int block_x = blockIdx.x * blockDim.x;
 
-    f32 sum = 0;
-    for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
-        for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-            sum += d_w[ki * KERNEL_SIZE + kj] * input((y - KERNEL_SIZE / 2 + SIZE + kri), (x - KERNEL_SIZE / 2 + SIZE + kcj));
+    // Load entire tile
+    for (int i = threadIdx.y; i < tile_h; i += blockDim.y) {
+        for (int j = threadIdx.x; j < tile_w; j += blockDim.x) {
+            int gy = (block_y - HALO + i + SIZE) % SIZE;
+            int gx = (block_x - HALO + j + SIZE) % SIZE;
+            world_tile[i * tile_w + j] = world[gy * SIZE + gx];
         }
     }
-    tmp[idx] = sum;
-}
+    __syncthreads();
 
-__global__ void next_step(f32* world, f32* tmp) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x >= SIZE || y >= SIZE) return;
-    int idx = y * SIZE + x;
-
-    f32 t = world[idx];
-    t += DT * growth_lenia(tmp[idx]);
-    world[idx] = fminf(1, fmaxf(0, t));
-}
-
-__global__ void whole_step(f32* world, f32* new_world) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int x = block_x + threadIdx.x;
+    int y = block_y + threadIdx.y;
     if (x >= SIZE || y >= SIZE) return;
 
     f32 sum = 0;
     for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-        sum += d_sparse_k[k].weight * input((y + d_sparse_k[k].di + SIZE), (x + d_sparse_k[k].dj + SIZE));
+        int ti = HALO + threadIdx.y + d_sparse_k[k].di;
+        int tj = HALO + threadIdx.x + d_sparse_k[k].dj;
+        sum += d_sparse_k[k].weight * world_tile[ti * tile_w + tj];
     }
     int idx = y * SIZE + x;
     new_world[idx] = fminf(1, fmaxf(0, world[idx] + DT * growth_lenia(sum)));
@@ -170,6 +160,9 @@ int main() {
     checkCudaErrors(cudaMalloc((void**)&d_buffer2, (SIZE) * (SIZE) * sizeof(f32)));
 
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    const int tile_w = blockSize.x + KERNEL_SIZE;
+    const int tile_h = blockSize.y + KERNEL_SIZE;
+    const size_t tile_mem_size = tile_w * tile_h * sizeof(f32);
     // (next) multiple of block size to cover the whole grid
     /*
 >>> BLOCK_SIZE = 16
@@ -208,7 +201,7 @@ int main() {
         */
 
         // Convolution + Evolution fused
-        whole_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
+        whole_step<<<gridSize, blockSize, tile_mem_size>>>(d_buffer, d_buffer2, tile_w, tile_h);
         checkCudaErrors(cudaGetLastError());
         // Swap buffers
         f32* temp = d_buffer;
