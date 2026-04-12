@@ -92,25 +92,25 @@ int main() {
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
         // Convolution with sparse kernel
         OMP(parallel for)
-        for (usize i = 0; i < SIZE; i++) {
-            for (usize j = 0; j < SIZE; j++) {
+        for (usize y = 0; y < SIZE; y++) {
+            for (usize x = 0; x < SIZE; x++) {
                 f32 sum = 0;
                 for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-                    sum += sparse_kernel[k].weight * input((i + sparse_kernel[k].di + SIZE), (j + sparse_kernel[k].dj + SIZE));
+                    sum += sparse_kernel[k].weight * input((y + sparse_kernel[k].di + SIZE), (x + sparse_kernel[k].dj + SIZE));
                 }
-                tmp[i * SIZE + j] = sum;
+                tmp[y * SIZE + x] = sum;
             }
         }
 
         // Evolution
         OMP(parallel for)
-        for (unsigned int i = 0; i < SIZE; i++) {
-            for (unsigned int j = 0; j < SIZE; j++) {
-                f32 t = world[i * SIZE + j];
-                t += DT * growth_lenia_poly(tmp[i * SIZE + j]);
-                world[i * SIZE + j] = fminf(1, fmaxf(0, t));  // Clip between 0 and 1
+        for (unsigned int y = 0; y < SIZE; y++) {
+            for (unsigned int x = 0; x < SIZE; x++) {
+                f32 t = world[y * SIZE + x];
+                t += DT * growth_lenia_poly(tmp[y * SIZE + x]);
+                world[y * SIZE + x] = fminf(1, fmaxf(0, t));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
-                gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
+                gif->frame[y * SIZE + x] = world[y * SIZE + x] * 255;
 #endif
             }
         }
