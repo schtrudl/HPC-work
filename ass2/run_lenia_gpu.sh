@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_9_xy.log
+#SBATCH --output=timings_gpu_10_async.log
 
 #LOAD MODULES
 module load CUDA

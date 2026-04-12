@@ -91,25 +91,25 @@ f32* generate_kernel(f32* const K, const usize size) {
 __constant__ f32 d_w[KERNEL_SIZE * KERNEL_SIZE];  // Convolution kernel on device
 
 __global__ void conv_step(f32* world, f32* tmp) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    if (i >= SIZE || j >= SIZE) return;
-    int idx = i * SIZE + j;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= SIZE || y >= SIZE) return;
+    int idx = y * SIZE + x;
 
     f32 sum = 0;
     for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
         for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-            sum += d_w[ki * KERNEL_SIZE + kj] * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+            sum += d_w[ki * KERNEL_SIZE + kj] * input((y - KERNEL_SIZE / 2 + SIZE + kri), (x - KERNEL_SIZE / 2 + SIZE + kcj));
         }
     }
     tmp[idx] = sum;
 }
 
 __global__ void next_step(f32* world, f32* tmp) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    if (i >= SIZE || j >= SIZE) return;
-    int idx = i * SIZE + j;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= SIZE || y >= SIZE) return;
+    int idx = y * SIZE + x;
 
     f32 t = world[idx];
     t += DT * growth_lenia(tmp[idx]);
@@ -192,7 +192,7 @@ int main() {
     dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
 
     checkCudaErrors(cudaEventRecord(start));
-    checkCudaErrors(cudaMemcpy(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaEventRecord(start_compute));
 
     // Lenia Simulation
