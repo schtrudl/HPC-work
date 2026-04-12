@@ -41,52 +41,24 @@ struct orbium_coo {
 };
 
 // Function to calculate Gaussian
-__host__ __device__ __forceinline__ f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
+__device__ __forceinline__ f32 gauss(const f32 x, const f32 mu, const f32 sigma) {
     f32 z = (x - mu) / sigma;
     return expf(-0.5f * z * z);
 }
 
 // Function for growth criteria
-__host__ __device__ __forceinline__ f32 growth_lenia(const f32 u) {
+__device__ __forceinline__ f32 growth_lenia(const f32 u) {
     f32 mu = 0.15f;
     f32 sigma = 0.015f;
     return -1.0f + 2.0f * gauss(u, mu, sigma);  // Baseline -1, peak +1
 }
 
 // Polynomial approximation of growth_lenia (max error: 1.26e-05)
-__host__ __device__ __forceinline__ f32 growth_lenia_poly(const f32 u) {
+__device__ __forceinline__ f32 growth_lenia_poly(const f32 u) {
     const f32 mu = 0.15f, sigma = 0.015f;
     if (u < 0.09f || u > 0.21f) return -1.0f;
     const f32 t = (u - mu) / sigma, t2 = t * t;
     return ((((((((((1.5164566482e-11f) * t2 + (-1.5024997416e-09f)) * t2 + (6.7570921873e-08f)) * t2 + (-1.8452074685e-06f)) * t2 + (3.4634562942e-05f)) * t2 + (-4.7938982646e-04f)) * t2 + (5.0822995568e-03f)) * t2 + (-4.1438623715e-02f)) * t2 + (2.4978575127e-01f)) * t2 + (-9.9992089585e-01f)) * t2 + (9.9999515209e-01f);
-}
-
-// Function to generate convolution kernel
-f32* generate_kernel(f32* const K, const usize size) {
-    // Construct ring convolution filter
-    const f32 mu = 0.5f;
-    const f32 sigma = 0.15f;
-    const int r = size / 2;
-    f32 sum = 0.0f;
-    if (K != NULL) {
-        for (int y = -r; y < r; y++) {
-            for (int x = -r; x < r; x++) {
-                f32 distance = sqrtf((1.0f + x) * (1.0f + x) + (1.0f + y) * (1.0f + y)) / r;
-                K[(y + r) * size + x + r] = gauss(distance, mu, sigma);
-                if (distance > 1.0f) {
-                    K[(y + r) * size + x + r] = 0.0f;  // Cut at d=1
-                }
-                sum += K[(y + r) * size + x + r];
-            }
-        }
-        // Normalize
-        for (usize y = 0; y < size; y++) {
-            for (usize x = 0; x < size; x++) {
-                K[y * size + x] /= sum;
-            }
-        }
-    }
-    return K;
 }
 
 __global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
@@ -116,7 +88,7 @@ __global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
         sum += d_sparse_k[k].weight * world_tile[ti * tile_w + tj];
     }
     int idx = y * SIZE + x;
-    new_world[idx] = fminf(1, fmaxf(0, world[idx] + DT * growth_lenia(sum)));
+    new_world[idx] = __saturatef(world[idx] + DT * growth_lenia(sum));
 }
 
 // Place two orbiums in the world with different angles. (y, x, angle)
@@ -190,16 +162,6 @@ int main() {
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
-        /*
-        // Convolution
-        conv_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
-        checkCudaErrors(cudaGetLastError());
-
-        // Evolution
-        next_step<<<gridSize, blockSize>>>(d_buffer, d_buffer2);
-        checkCudaErrors(cudaGetLastError());
-        */
-
         // Convolution + Evolution fused
         whole_step<<<gridSize, blockSize, tile_mem_size>>>(d_buffer, d_buffer2, tile_w, tile_h);
         checkCudaErrors(cudaGetLastError());
