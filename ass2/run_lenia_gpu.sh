@@ -8,7 +8,7 @@
 #SBATCH --gpus=1
 #SBATCH --nodes=1
 #SBATCH --output=timings_gpu_x.log
-#SBATCH --time=06:00:00
+#SBATCH --time=01:00:00
 
 #LOAD MODULES
 module load CUDA
