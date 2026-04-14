@@ -19,6 +19,12 @@
 #ifndef BLOCK_SIZE
     #define BLOCK_SIZE 16
 #endif
+#ifndef BLOCK_SIZE_X
+    #define BLOCK_SIZE_X BLOCK_SIZE
+#endif
+#ifndef BLOCK_SIZE_Y
+    #define BLOCK_SIZE_Y BLOCK_SIZE
+#endif
 
 #define NUM_STEPS 1000
 #define DT 0.1
@@ -131,7 +137,7 @@ int main() {
     checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
     checkCudaErrors(cudaMalloc((void**)&d_buffer2, (SIZE) * (SIZE) * sizeof(f32)));
 
-    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
     const int tile_w = blockSize.x + KERNEL_SIZE;
     const int tile_h = blockSize.y + KERNEL_SIZE;
     const size_t tile_mem_size = tile_w * tile_h * sizeof(f32);
