@@ -7,7 +7,7 @@
 #define NUM_KERNEL_ENTRIES 527
 
 struct kernel_entry {
-    int di, dj;
+    int dy, dx;
     float weight;
 };
 

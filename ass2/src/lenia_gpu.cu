@@ -74,11 +74,11 @@ __global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
     const int block_x = blockIdx.x * blockDim.x;
 
     // Load entire tile
-    for (int i = threadIdx.y; i < tile_h; i += blockDim.y) {
-        for (int j = threadIdx.x; j < tile_w; j += blockDim.x) {
-            int gy = (block_y - HALO + i + SIZE) % SIZE;
-            int gx = (block_x - HALO + j + SIZE) % SIZE;
-            world_tile[i * tile_w + j] = world[gy * SIZE + gx];
+    for (int y = threadIdx.y; y < tile_h; y += blockDim.y) {
+        for (int x = threadIdx.x; x < tile_w; x += blockDim.x) {
+            int gy = (block_y - HALO + y + SIZE) % SIZE;
+            int gx = (block_x - HALO + x + SIZE) % SIZE;
+            world_tile[y * tile_w + x] = world[gy * SIZE + gx];
         }
     }
     __syncthreads();
@@ -89,9 +89,9 @@ __global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
 
     f32 sum = 0;
     for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-        int ti = HALO + threadIdx.y + d_sparse_k[k].di;
-        int tj = HALO + threadIdx.x + d_sparse_k[k].dj;
-        sum += d_sparse_k[k].weight * world_tile[ti * tile_w + tj];
+        int ty = HALO + threadIdx.y + d_sparse_k[k].dy;
+        int tx = HALO + threadIdx.x + d_sparse_k[k].dx;
+        sum += d_sparse_k[k].weight * world_tile[ty * tile_w + tx];
     }
     int idx = y * SIZE + x;
     new_world[idx] = __saturatef(world[idx] + DT * growth_lenia(sum));
