@@ -17,7 +17,7 @@
     #define SIZE 64
 #endif
 #ifndef BLOCK_SIZE
-    #define BLOCK_SIZE 16
+    #define BLOCK_SIZE 32
 #endif
 #ifndef BLOCK_SIZE_X
     #define BLOCK_SIZE_X BLOCK_SIZE

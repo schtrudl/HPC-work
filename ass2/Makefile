@@ -1,9 +1,9 @@
 # Compiler
 CC = nvcc
 
-SIZE ?= 256
+SIZE ?= 64
 
-BLOCK_SIZE ?= 16
+BLOCK_SIZE ?= 32
 BLOCK_SIZE_X ?= $(BLOCK_SIZE)
 BLOCK_SIZE_Y ?= $(BLOCK_SIZE)
 
