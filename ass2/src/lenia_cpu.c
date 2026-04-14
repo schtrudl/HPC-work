@@ -15,7 +15,7 @@
 // #define GENERATE_GIF
 
 #ifndef SIZE
-    #define SIZE 256
+    #define SIZE 64
 #endif
 
 #define NUM_STEPS 100

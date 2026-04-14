@@ -26,7 +26,7 @@
     #define BLOCK_SIZE_Y BLOCK_SIZE
 #endif
 
-#define NUM_STEPS 1000
+#define NUM_STEPS 100
 #define DT 0.1
 #define KERNEL_SIZE 26
 #define HALO (KERNEL_SIZE / 2)  // 13

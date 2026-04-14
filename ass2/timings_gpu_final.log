@@ -1,0 +1,16 @@
+srun: Step created for StepId=66287227.18
+256:
+  compute: 0.0035 s ± 0.0000 s
+  full: 0.0038 s ± 0.0000 s
+512:
+  compute: 0.0114 s ± 0.0001 s
+  full: 0.0132 s ± 0.0004 s
+1024:
+  compute: 0.0370 s ± 0.0001 s
+  full: 0.0406 s ± 0.0005 s
+2048:
+  compute: 0.1168 s ± 0.0083 s
+  full: 0.1286 s ± 0.0083 s
+4096:
+  compute: 0.4461 s ± 0.0007 s
+  full: 0.4978 s ± 0.0010 s

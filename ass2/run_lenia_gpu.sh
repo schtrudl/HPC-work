@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_x.log
+#SBATCH --output=timings_gpu_final.log
 #SBATCH --time=01:00:00
 
 #LOAD MODULES
