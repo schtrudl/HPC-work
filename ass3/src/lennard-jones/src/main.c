@@ -5,19 +5,19 @@
 
 #include "lennard-jones.h"
 
-void print_help(const char *exe) {
+void print_help(const char* exe) {
     printf("Usage: %s [N] [nsteps]\n", exe);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     // default parameters
     unsigned int nsteps = 100;
     unsigned int n = 100;
     double density = 0.95;
     double temperature = 0.5;
     unsigned int seed = 42;
-    
-    Particle *particles = NULL;
+
+    Particle* particles = NULL;
     SimulationResult result;
 
     // read command line arguments
@@ -44,14 +44,7 @@ int main(int argc, char **argv) {
     }
 
     // initalize particles with random positions and velocities
-    if (!initialize_particles(
-            particles,
-            n,
-            box_size,
-            box_fraction,
-            seed,
-            temperature
-        )) {
+    if (!initialize_particles(particles, n, box_size, box_fraction, seed, temperature)) {
         fprintf(stderr, "Failed to initialize particles.\n");
         free(particles);
         return 1;

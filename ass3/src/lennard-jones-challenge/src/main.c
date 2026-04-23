@@ -5,14 +5,14 @@
 
 #include "lennard-jones.h"
 
-void print_help(const char *exe) {
+void print_help(const char* exe) {
     printf("Usage: %s [N] [nsteps]\n", exe);
 }
 
-// DEMO main. Your main.c will not be compiled into the final app for the competition, 
-// but you can use it for testing and benchmarking your code. 
+// DEMO main. Your main.c will not be compiled into the final app for the competition,
+// but you can use it for testing and benchmarking your code.
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     // default parameters
     unsigned int nsteps = 100;
     unsigned int n = 100;
@@ -22,8 +22,8 @@ int main(int argc, char **argv) {
     double particle_box_size;
     double box_size;
     double box_fraction;
-    
-    Particle *particles = NULL;
+
+    Particle* particles = NULL;
     SimulationResult result;
 
     // read command line arguments
@@ -50,14 +50,7 @@ int main(int argc, char **argv) {
     }
 
     // initalize particles with random positions and velocities
-    if (!initialize_particles(
-            particles,
-            n,
-            box_size,
-            box_fraction,
-            seed,
-            temperature
-        )) {
+    if (!initialize_particles(particles, n, box_size, box_fraction, seed, temperature)) {
         fprintf(stderr, "Failed to initialize particles.\n");
         free(particles);
         return 1;

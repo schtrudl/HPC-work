@@ -9,7 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --output=lj_out.log
 
-#LOAD MODULES 
+#LOAD MODULES
 module load CUDA
 
 #BUILD
