@@ -1,3 +1,5 @@
+#ifndef __MAIN_X__
+#define __MAIN_X__
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +40,7 @@ int main(int argc, char** argv) {
     double box_fraction = particle_box_size / box_size;
 
     // allocate memory for particles
-    if (!(particles = calloc(n, sizeof(Particle)))) {
+    if (!(particles = (Particle*)calloc(n, sizeof(Particle)))) {
         fprintf(stderr, "Failed to allocate simulation arrays.\n");
         return 1;
     }
@@ -59,8 +61,10 @@ int main(int argc, char** argv) {
     printf("Final PE: %10.4f | delta: %+.4f\n", result.final_potential, result.final_potential - result.start_potential);
     printf("Final E:  %10.4f | delta: %+.4f\n", result.final_total, result.final_total - result.start_total);
 
-    printf("Simulation time %d steps: %.3f seconds\n", nsteps, stop - start);
+    //printf("Simulation time %d steps: %.3f seconds\n", nsteps, stop - start);
+    printf("Time(full): %f s\n", stop - start);
 
     free(particles);
     return 0;
 }
+#endif

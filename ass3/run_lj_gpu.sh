@@ -2,19 +2,18 @@
 
 #SBATCH --reservation=fri
 #SBATCH --partition=gpu
-#SBATCH --job-name=lennard-jones
+#SBATCH --job-name=lj_gpu
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=lj_out.log
+#SBATCH --output=timings_gpu_final.log
+#SBATCH --time=01:00:00
 
 #LOAD MODULES
 module load CUDA
 
-#BUILD
-make
-
 #RUN
-srun ./lj.out
-
+./run.py gpu -n=10 --srun
+#module load FFmpeg
+#./verify.py --srun gpu

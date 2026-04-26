@@ -240,3 +240,5 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     out.particles = particles;
     return out;
 }
+
+#include "main.h"

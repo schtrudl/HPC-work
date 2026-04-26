@@ -1,6 +1,12 @@
-#include "gifenc.h"
+#ifndef GIFENC_H
+#define GIFENC_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -12,8 +18,23 @@
     #include <unistd.h>
 #endif
 
+typedef struct ge_GIF {
+    uint16_t w, h;
+    int depth;
+    int bgindex;
+    int fd;
+    int offset;
+    int nframes;
+    uint8_t *frame, *back;
+    uint32_t partial;
+    uint8_t buffer[0xFF];
+} ge_GIF;
+
 /* helper to write a little-endian 16-bit number portably */
-#define write_num(fd, n) write((fd), (uint8_t[]) {(n) & 0xFF, (n) >> 8}, 2)
+static inline void write_num(int fd, uint16_t n) {
+    uint8_t buf[2] = {(uint8_t)(n & 0xFF), (uint8_t)(n >> 8)};
+    write(fd, buf, 2);
+}
 
 static uint8_t vga[0x30] = {
     0x00, 0x00, 0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0xAA, 0x55, 0x00, 0x00, 0x00, 0xAA, 0xAA, 0x00, 0xAA, 0x00, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x55, 0x55, 0x55, 0xFF, 0x55, 0x55, 0x55, 0xFF, 0x55, 0xFF, 0xFF, 0x55, 0x55, 0x55, 0xFF, 0xFF, 0x55, 0xFF, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -26,7 +47,7 @@ struct Node {
 typedef struct Node Node;
 
 static Node* new_node(uint16_t key, int degree) {
-    Node* node = calloc(1, sizeof(*node) + degree * sizeof(Node*));
+    Node* node = (Node*)calloc(1, sizeof(*node) + degree * sizeof(Node*));
     if (node) node->key = key;
     return node;
 }
@@ -61,8 +82,11 @@ static void put_loop(ge_GIF* gif, uint16_t loop);
 ge_GIF* ge_new_gif(const char* fname, uint16_t width, uint16_t height, uint8_t* palette, int depth, int bgindex, int loop) {
     int i, r, g, b, v;
     int store_gct, custom_gct;
+    uint8_t gct_info[3];
+    uint8_t rgb[3];
+    uint8_t gray[3];
     int nbuffers = bgindex < 0 ? 2 : 1;
-    ge_GIF* gif = calloc(1, sizeof(*gif) + nbuffers * width * height);
+    ge_GIF* gif = (ge_GIF*)calloc(1, sizeof(*gif) + nbuffers * width * height);
     if (!gif) goto no_gif;
     gif->w = width;
     gif->h = height;
@@ -90,7 +114,10 @@ ge_GIF* ge_new_gif(const char* fname, uint16_t width, uint16_t height, uint8_t* 
     }
     if (depth < 0) depth = -depth;
     gif->depth = depth > 1 ? depth : 2;
-    write(gif->fd, (uint8_t[]) {0xF0 | (depth - 1), (uint8_t)bgindex, 0x00}, 3);
+    gct_info[0] = (uint8_t)(0xF0 | (depth - 1));
+    gct_info[1] = (uint8_t)bgindex;
+    gct_info[2] = 0x00;
+    write(gif->fd, gct_info, 3);
     if (custom_gct) {
         write(gif->fd, palette, 3 << depth);
     } else if (depth <= 4) {
@@ -101,14 +128,20 @@ ge_GIF* ge_new_gif(const char* fname, uint16_t width, uint16_t height, uint8_t* 
         for (r = 0; r < 6; r++) {
             for (g = 0; g < 6; g++) {
                 for (b = 0; b < 6; b++) {
-                    write_and_store(store_gct, palette, gif->fd, ((uint8_t[]) {r * 51, g * 51, b * 51}), 3);
+                    rgb[0] = (uint8_t)(r * 51);
+                    rgb[1] = (uint8_t)(g * 51);
+                    rgb[2] = (uint8_t)(b * 51);
+                    write_and_store(store_gct, palette, gif->fd, rgb, 3);
                     if (++i == 1 << depth) goto done_gct;
                 }
             }
         }
         for (i = 1; i <= 24; i++) {
             v = i * 0xFF / 25;
-            write_and_store(store_gct, palette, gif->fd, ((uint8_t[]) {v, v, v}), 3);
+            gray[0] = (uint8_t)v;
+            gray[1] = (uint8_t)v;
+            gray[2] = (uint8_t)v;
+            write_and_store(store_gct, palette, gif->fd, gray, 3);
         }
     }
 done_gct:
@@ -121,9 +154,11 @@ no_gif:
 }
 
 static void put_loop(ge_GIF* gif, uint16_t loop) {
-    write(gif->fd, (uint8_t[]) {'!', 0xFF, 0x0B}, 3);
+    static const uint8_t app_ext[3] = {'!', 0xFF, 0x0B};
+    static const uint8_t sub_block[2] = {0x03, 0x01};
+    write(gif->fd, app_ext, 3);
     write(gif->fd, "NETSCAPE2.0", 11);
-    write(gif->fd, (uint8_t[]) {0x03, 0x01}, 2);
+    write(gif->fd, sub_block, 2);
     write_num(gif->fd, loop);
     write(gif->fd, "\0", 1);
 }
@@ -155,7 +190,8 @@ static void end_key(ge_GIF* gif) {
     byte_offset = gif->offset / 8;
     if (gif->offset % 8) gif->buffer[byte_offset++] = gif->partial & 0xFF;
     if (byte_offset) {
-        write(gif->fd, (uint8_t[]) {byte_offset}, 1);
+        uint8_t len[1] = {(uint8_t)byte_offset};
+        write(gif->fd, len, 1);
         write(gif->fd, gif->buffer, byte_offset);
     }
     write(gif->fd, "\0", 1);
@@ -172,7 +208,8 @@ static void put_image(ge_GIF* gif, uint16_t w, uint16_t h, uint16_t x, uint16_t 
     write_num(gif->fd, y);
     write_num(gif->fd, w);
     write_num(gif->fd, h);
-    write(gif->fd, (uint8_t[]) {0x00, gif->depth}, 2);
+    uint8_t img_desc[2] = {0x00, (uint8_t)gif->depth};
+    write(gif->fd, img_desc, 2);
     root = node = new_trie(degree, &nkeys);
     key_size = gif->depth + 1;
     put_key(gif, degree, key_size); /* clear code */
@@ -236,9 +273,11 @@ static int get_bbox(ge_GIF* gif, uint16_t* w, uint16_t* h, uint16_t* x, uint16_t
 
 static void add_graphics_control_extension(ge_GIF* gif, uint16_t d) {
     uint8_t flags = ((gif->bgindex >= 0 ? 2 : 1) << 2) + 1;
-    write(gif->fd, (uint8_t[]) {'!', 0xF9, 0x04, flags}, 4);
+    uint8_t gce_header[4] = {'!', 0xF9, 0x04, flags};
+    write(gif->fd, gce_header, 4);
     write_num(gif->fd, d);
-    write(gif->fd, (uint8_t[]) {(uint8_t)gif->bgindex, 0x00}, 2);
+    uint8_t gce_footer[2] = {(uint8_t)gif->bgindex, 0x00};
+    write(gif->fd, gce_footer, 2);
 }
 
 void ge_add_frame(ge_GIF* gif, uint16_t delay) {
@@ -269,3 +308,9 @@ void ge_close_gif(ge_GIF* gif) {
     close(gif->fd);
     free(gif);
 }
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* GIFENC_H */

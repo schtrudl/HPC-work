@@ -11,7 +11,9 @@ extern "C" {
 #define R_CUT 2.5
 #define JITTER 0.05
 
-#define GENERATE_GIF 0
+#ifndef GENERATE_GIF
+    #define GENERATE_GIF 0
+#endif
 #define FRAME_WIDTH 800
 #define FRAME_HEIGHT 800
 #define FRAME_EVERY 5
