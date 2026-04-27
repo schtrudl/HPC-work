@@ -114,30 +114,8 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     return 1;
 }
 
-// apply periodic boundary conditions to ensure particles stay within the simulation box
-void wrap_positions(Particle* particles, unsigned int n, double box_size) {
-    OMP(parallel for)
-    for (unsigned int i = 0; i < n; ++i) {
-        Particle* p = &particles[i];
-        double wx = fmod(p->x, box_size);
-        double wy = fmod(p->y, box_size);
-
-        if (wx < 0.0) {
-            wx += box_size;
-        }
-        if (wy < 0.0) {
-            wy += box_size;
-        }
-
-        p->x = wx;
-        p->y = wy;
-    }
-}
-
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
-double compute_v_shift(void) {
-    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
-}
+const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 
 double compute_forces(Particle* particles, unsigned int n, double box_size) {
     OMP(parallel for)
@@ -146,7 +124,6 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
         particles[i].fy = 0.0;
     }
     double pe = 0.0;
-    double v_shift = compute_v_shift();
     OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
         for (unsigned int j = 0; j < n; ++j) {
@@ -187,20 +164,30 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
     return pe;
 }
 
+// update velocities by half a time step, then update positions by a full time step,
+//and finally update velocities by another half time step to complete the leapfrog integration step
 double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
-    // update velocities by half a time step, then update positions by a full time step,
-    //and finally update velocities by another half time step to complete the leapfrog integration step
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* p = &particles[i];
         p->vx += 0.5 * DT * p->fx;
         p->vy += 0.5 * DT * p->fy;
 
-        p->x += DT * p->vx;
-        p->y += DT * p->vy;
-    }
+        // fused wrap_positions
+        // apply periodic boundary conditions to ensure particles stay within the simulation box
+        double wx = fmod(p->x + DT * p->vx, box_size);
+        double wy = fmod(p->y + DT * p->vy, box_size);
 
-    wrap_positions(particles, n, box_size);
+        if (wx < 0.0) {
+            wx += box_size;
+        }
+        if (wy < 0.0) {
+            wy += box_size;
+        }
+
+        p->x = wx;
+        p->y = wy;
+    }
 
     double pe = compute_forces(particles, n, box_size);
 
