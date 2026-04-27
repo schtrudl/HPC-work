@@ -3,10 +3,10 @@
 #SBATCH --reservation=fri
 #SBATCH --job-name=lj_cpu
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --output=timings_cpu_final.log
-#SBATCH --time=00:30:00
+#SBATCH --output=timings_cpu_x.log
+#SBATCH --time=01:00:00
 
 # Set OpenMP environment variables for thread placement and binding
 export OMP_PLACES=cores
