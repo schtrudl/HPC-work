@@ -27,52 +27,58 @@ parser.add_argument(
     action="store_true",
     help="Verify all combinations",
 )
+parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="Just cmp and exit",
+)
 args = parser.parse_args()
 
 binary = "lj_cpu" if "cpu" in args.binary else "lj_gpu"
 
-subprocess.run(
-    ["make", binary],
-    check=True,
-    env={"GENERATE_GIF": "1", **os.environ},
-)
-
-shutil.rmtree("result/out", ignore_errors=True)
-configs = [(100, 100)]
-if args.full:
-    configs += [
-        (1000, 5000),
-        (2000, 5000),
-        (4000, 5000),
-        (8000, 5000),
-    ]
-
-for particles, steps in configs:
-    cmd = [f"./{binary}", f"{particles}", f"{steps}"]
-    if args.srun:
-        cmd = ["srun"] + cmd
-    output = subprocess.check_output(
-        cmd,
-    ).decode("utf-8")
-    # keep only lines starting with Final
-    result = (
-        "\n".join(line for line in output.splitlines() if line.startswith("Final"))
-        + "\n"
-    )
-
-    out = f"result/out/{particles}_{steps}"
-    os.makedirs(out, exist_ok=True)
-    with open(f"{out}/result.txt", "w") as f:
-        f.write(result)
-    shutil.move("./simulation.gif", f"{out}/simulation.gif")
+if not args.dry_run:
     subprocess.run(
-        ["ffmpeg", "-i", f"{out}/simulation.gif", "-vsync", "0", f"{out}/%d.png"],
+        ["make", binary],
         check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        env={"GENERATE_GIF": "1", **os.environ},
     )
 
-if args.bless:
+    shutil.rmtree("result/out", ignore_errors=True)
+    configs = [(100, 100)]
+    if args.full:
+        configs += [
+            (1000, 5000),
+            (2000, 5000),
+            (4000, 5000),
+            (8000, 5000),
+        ]
+
+    for particles, steps in configs:
+        cmd = [f"./{binary}", f"{particles}", f"{steps}"]
+        if args.srun:
+            cmd = ["srun"] + cmd
+        output = subprocess.check_output(
+            cmd,
+        ).decode("utf-8")
+        # keep only lines starting with Final
+        result = (
+            "\n".join(line for line in output.splitlines() if line.startswith("Final"))
+            + "\n"
+        )
+
+        out = f"result/out/{particles}_{steps}"
+        os.makedirs(out, exist_ok=True)
+        with open(f"{out}/result.txt", "w") as f:
+            f.write(result)
+        shutil.move("./simulation.gif", f"{out}/simulation.gif")
+        subprocess.run(
+            ["ffmpeg", "-i", f"{out}/simulation.gif", "-vsync", "0", f"{out}/%d.png"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+if args.bless and not args.dry_run:
     shutil.copytree("result/out", "result/blessed", dirs_exist_ok=True)
 else:
     subprocess.run(
@@ -96,15 +102,16 @@ else:
             out_result = f.read()
         with open(f"result/blessed/{out}/result.txt") as f:
             blessed_result = f.read()
-
-            print(
-                "\n".join(
-                    difflib.unified_diff(
-                        blessed_result.splitlines(),
-                        out_result.splitlines(),
-                        fromfile=f"blessed/{out}/result.txt",
-                        tofile=f"out/{out}/result.txt",
-                        lineterm="",
-                    )
-                )
+        diff = "\n".join(
+            difflib.unified_diff(
+                blessed_result.splitlines(),
+                out_result.splitlines(),
+                fromfile=f"blessed/{out}/result.txt",
+                tofile=f"out/{out}/result.txt",
+                lineterm="",
             )
+        )
+        if diff:
+            print(diff)
+        else:
+            print(f"{out} is OK")

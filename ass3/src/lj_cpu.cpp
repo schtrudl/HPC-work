@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <omp.h>
+
+#define OMP(x) DO_PRAGMA(omp x)
+#define DO_PRAGMA(x) _Pragma(#x)
 
 // Include CUDA headers
 // #include <cuda_runtime.h>
@@ -47,6 +51,7 @@ double random_double(void) {
 // compute kinetic energy of the system
 double compute_ke(const Particle* particles, unsigned int n) {
     double ke = 0.0;
+    OMP(parallel for reduction(+:ke))
     for (unsigned int i = 0; i < n; ++i) {
         const Particle* p = &particles[i];
         ke += 0.5 * (p->vx * p->vx + p->vy * p->vy);
@@ -105,6 +110,7 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
 
 // apply periodic boundary conditions to ensure particles stay within the simulation box
 void wrap_positions(Particle* particles, unsigned int n, double box_size) {
+    OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* p = &particles[i];
         double wx = fmod(p->x, box_size);
@@ -128,12 +134,14 @@ double compute_v_shift(void) {
 }
 
 double compute_forces(Particle* particles, unsigned int n, double box_size) {
+    OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         particles[i].fx = 0.0;
         particles[i].fy = 0.0;
     }
     double pe = 0.0;
     double v_shift = compute_v_shift();
+    OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
         for (unsigned int j = 0; j < n; ++j) {
             if (j == i) {
@@ -160,7 +168,9 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
             double fx = fij * dx / r;
             double fy = fij * dy / r;
 
+            OMP(atomic)
             pi->fx += fx;
+            OMP(atomic)
             pi->fy += fy;
 
             double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
@@ -174,6 +184,7 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
 double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
     // update velocities by half a time step, then update positions by a full time step,
     //and finally update velocities by another half time step to complete the leapfrog integration step
+    OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* p = &particles[i];
         p->vx += 0.5 * DT * p->fx;
@@ -187,6 +198,7 @@ double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
 
     double pe = compute_forces(particles, n, box_size);
 
+    OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* p = &particles[i];
         p->vx += 0.5 * DT * p->fx;
