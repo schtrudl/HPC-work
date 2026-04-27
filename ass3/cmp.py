@@ -17,16 +17,14 @@ parser = argparse.ArgumentParser(
     description="Script for comparing timings produced by run script."
 )
 parser.add_argument(
-    "--baseline",
+    "baseline",
     type=str,
     help="baseline timings file",
-    default="timings.baseline.log",
 )
 parser.add_argument(
-    "--current",
+    "current",
     type=str,
     help="current/new timings file",
-    default="timings.new.log",
 )
 parser.add_argument(
     "--significance-threshold",

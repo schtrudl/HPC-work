@@ -69,6 +69,7 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     double mean_vx = 0.0;
     double mean_vy = 0.0;
     // place particles int he middle of the grid with some random jitter and assign random velocities
+    // this loop should not be parallelized to ensure reproducibility of the initial conditions (due to rand and mean)
     for (unsigned int k = 0; k < n; k++) {
         double x0 = offset + (0.5 + (double)(k % n_side)) * delta;
         double y0 = offset + (0.5 + (double)(k / n_side)) * delta;
@@ -87,9 +88,13 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     mean_vy /= (double)n;
     double ke = 0.0;
     // subtract mean velocity to ensure zero net momentum and compute initial kinetic energy
+    OMP(parallel for)
     for (unsigned int k = 0; k < n; k++) {
         particles[k].vx -= mean_vx;
         particles[k].vy -= mean_vy;
+    }
+    // this loop should not be parallelized to ensure reproducibility of the initial conditions
+    for (unsigned int k = 0; k < n; k++) {
         ke += 0.5 * (particles[k].vx * particles[k].vx + particles[k].vy * particles[k].vy);
     }
 
@@ -100,6 +105,7 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
 
     // scale velocities to match the desired initial temperature of the system
     double scale = sqrt(temperature / current_temperature);
+    OMP(parallel for)
     for (unsigned int k = 0; k < n; k++) {
         particles[k].vx *= scale;
         particles[k].vy *= scale;
