@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
 
     //run simulation and measure time
     double start = omp_get_wtime();
-    result = run_simulation(particles, n, nsteps, box_size, 1);
+    result = run_simulation(particles, n, nsteps, box_size, 0);
     double stop = omp_get_wtime();
     printf("\nFinished simulation.\n");
     printf("Final KE: %10.4f | delta: %+.4f\n", result.final_kinetic, result.final_kinetic - result.start_kinetic);
