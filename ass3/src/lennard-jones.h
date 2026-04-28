@@ -42,11 +42,6 @@ typedef struct {
 } SimulationResult;
 
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature);
-void wrap_positions(Particle* particles, unsigned int n, double box_size);
-
-double compute_v_shift(void);
-double compute_forces(Particle* particles, unsigned int n, double box_size);
-double leapfrog_step(Particle* particles, unsigned int n, double box_size);
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps);
 
 #ifdef __cplusplus

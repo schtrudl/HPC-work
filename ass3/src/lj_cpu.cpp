@@ -49,7 +49,7 @@ double random_double(void) {
 }
 
 // compute kinetic energy of the system
-double compute_ke(const Particle* particles, unsigned int n) {
+double inline compute_ke(const Particle* particles, unsigned int n) {
     double ke = 0.0;
     OMP(parallel for reduction(+:ke))
     for (unsigned int i = 0; i < n; ++i) {
@@ -109,10 +109,34 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     return 1;
 }
 
+void inline first_update(Particle* particles, unsigned int n, double box_size) {
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        Particle* p = &particles[i];
+        p->vx += 0.5 * DT * p->fx;
+        p->vy += 0.5 * DT * p->fy;
+
+        // fused wrap_positions
+        // apply periodic boundary conditions to ensure particles stay within the simulation box
+        double wx = fmod(p->x + DT * p->vx, box_size);
+        double wy = fmod(p->y + DT * p->vy, box_size);
+
+        if (wx < 0.0) {
+            wx += box_size;
+        }
+        if (wy < 0.0) {
+            wy += box_size;
+        }
+
+        p->x = wx;
+        p->y = wy;
+    }
+}
+
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 
-double compute_forces(Particle* particles, unsigned int n, double box_size) {
+double inline compute_forces(Particle* particles, unsigned int n, double box_size) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         particles[i].fx = 0.0;
@@ -159,41 +183,54 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
     return pe;
 }
 
-// update velocities by half a time step, then update positions by a full time step,
-//and finally update velocities by another half time step to complete the leapfrog integration step
-double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
+void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        particles[i].fx = 0.0;
+        particles[i].fy = 0.0;
+    }
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        for (unsigned int j = 0; j < n; ++j) {
+            if (j == i) {
+                continue;
+            }
+            Particle* pi = &particles[i];
+            Particle* pj = &particles[j];
+
+            // compute distance between particles with periodic boundary conditions
+            double dx = pi->x - pj->x;
+            double dy = pi->y - pj->y;
+
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+
+            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+            double r = sqrt(dx * dx + dy * dy);
+            if (r >= R_CUT || r == 0.0) {
+                continue;
+            }
+            double sr = SIGMA / r;
+
+            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+            double fx = fij * dx / r;
+            double fy = fij * dy / r;
+
+            OMP(atomic)
+            pi->fx += fx;
+            OMP(atomic)
+            pi->fy += fy;
+        }
+    }
+}
+
+void inline second_update(Particle* particles, unsigned int n) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* p = &particles[i];
         p->vx += 0.5 * DT * p->fx;
         p->vy += 0.5 * DT * p->fy;
-
-        // fused wrap_positions
-        // apply periodic boundary conditions to ensure particles stay within the simulation box
-        double wx = fmod(p->x + DT * p->vx, box_size);
-        double wy = fmod(p->y + DT * p->vy, box_size);
-
-        if (wx < 0.0) {
-            wx += box_size;
-        }
-        if (wy < 0.0) {
-            wy += box_size;
-        }
-
-        p->x = wx;
-        p->y = wy;
     }
-
-    double pe = compute_forces(particles, n, box_size);
-
-    OMP(parallel for)
-    for (unsigned int i = 0; i < n; ++i) {
-        Particle* p = &particles[i];
-        p->vx += 0.5 * DT * p->fx;
-        p->vy += 0.5 * DT * p->fy;
-    }
-
-    return pe;
 }
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
@@ -213,9 +250,25 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         ge_add_frame(gif, FRAME_DELAY);
     }
 #endif
+    unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
+    for (unsigned int step = 0; step < steps_without_log; step++) {
+        // leapfrog
+        first_update(particles, n, box_size);
+        compute_forces_no_pe(particles, n, box_size);
+        second_update(particles, n);
+#if GENERATE_GIF
+        if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
+            render_frame_gif(gif, particles, n, box_size);
+            ge_add_frame(gif, FRAME_DELAY);
+        }
+#endif
+    }
 
-    for (unsigned int step = 0; step < nsteps; step++) {
-        out.final_potential = leapfrog_step(particles, n, box_size);
+    for (unsigned int step = steps_without_log; step < nsteps; step++) {
+        first_update(particles, n, box_size);
+        out.final_potential = compute_forces(particles, n, box_size);
+        second_update(particles, n);
+
         out.final_kinetic = compute_ke(particles, n);
         out.final_total = out.final_kinetic + out.final_potential;
         if (log_steps) {
