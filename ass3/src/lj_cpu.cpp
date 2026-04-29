@@ -137,19 +137,16 @@ void inline first_update(Particle* particles, unsigned int n, double box_size) {
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 
 double inline compute_forces(Particle* particles, unsigned int n, double box_size) {
-    OMP(parallel for)
-    for (unsigned int i = 0; i < n; ++i) {
-        particles[i].fx = 0.0;
-        particles[i].fy = 0.0;
-    }
     double pe = 0.0;
     OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
+        Particle* pi = &particles[i];
+        pi->fx = 0.0;
+        pi->fy = 0.0;
         for (unsigned int j = 0; j < n; ++j) {
             if (j == i) {
                 continue;
             }
-            Particle* pi = &particles[i];
             Particle* pj = &particles[j];
 
             // compute distance between particles with periodic boundary conditions
@@ -170,9 +167,7 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
             double fx = fij * dx / r;
             double fy = fij * dy / r;
 
-            OMP(atomic)
             pi->fx += fx;
-            OMP(atomic)
             pi->fy += fy;
 
             double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
@@ -186,16 +181,13 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        particles[i].fx = 0.0;
-        particles[i].fy = 0.0;
-    }
-    OMP(parallel for)
-    for (unsigned int i = 0; i < n; ++i) {
+        Particle* pi = &particles[i];
+        pi->fx = 0.0;
+        pi->fy = 0.0;
         for (unsigned int j = 0; j < n; ++j) {
             if (j == i) {
                 continue;
             }
-            Particle* pi = &particles[i];
             Particle* pj = &particles[j];
 
             // compute distance between particles with periodic boundary conditions
@@ -216,9 +208,7 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
             double fx = fij * dx / r;
             double fy = fij * dy / r;
 
-            OMP(atomic)
             pi->fx += fx;
-            OMP(atomic)
             pi->fy += fy;
         }
     }
