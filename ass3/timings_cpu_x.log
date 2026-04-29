@@ -1,8 +1,6 @@
-1000:
-  full: 2.7741 s ± 0.0019 s
-2000:
-  full: 8.9332 s ± 0.0042 s
-4000:
-  full: 32.1310 s ± 0.0125 s
-8000:
-  full: 122.7904 s ± 0.2234 s
+c++ -DGENERATE_GIF -O3 -march=native --openmp ./src/lj_cpu.cpp -o lj_cpu -lm
+2000_5000 is OK
+8000_5000 is OK
+100_100 is OK
+1000_5000 is OK
+4000_5000 is OK

@@ -20,8 +20,8 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 #done
 
 rm lj_cpu
-./run.py --srun cpu -n=10
+#./run.py --srun cpu -n=10
 
-#module load FFmpeg
-#./verify.py --srun cpu --full
+module load FFmpeg
+./verify.py --srun cpu --full
 

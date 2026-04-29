@@ -1,6 +1,0 @@
-c++ -DGENERATE_GIF -O3 -march=native --openmp ./src/lj_cpu.cpp -o lj_cpu -lm
-2000_5000 is OK
-8000_5000 is OK
-100_100 is OK
-1000_5000 is OK
-4000_5000 is OK
