@@ -179,15 +179,17 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
 }
 
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
+    // Zero forces first
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        Particle* pi = &particles[i];
-        pi->fx = 0.0;
-        pi->fy = 0.0;
-        for (unsigned int j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
+        particles[i].fx = 0.0;
+        particles[i].fy = 0.0;
+    }
+    // Compute pairwise forces using symmetry (i < j)
+    OMP(parallel for schedule(static))
+    for (unsigned int i = 0; i < n; ++i) {
+        for (unsigned int j = i + 1; j < n; ++j) {
+            Particle* pi = &particles[i];
             Particle* pj = &particles[j];
 
             // compute distance between particles with periodic boundary conditions
@@ -197,7 +199,7 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
             dx -= box_size * nearbyint(dx / box_size);
             dy -= box_size * nearbyint(dy / box_size);
 
-            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+            // compute Lennard-Jones force if within cutoff
             double r = sqrt(dx * dx + dy * dy);
             if (r >= R_CUT || r == 0.0) {
                 continue;
@@ -208,8 +210,14 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
             double fx = fij * dx / r;
             double fy = fij * dy / r;
 
+            OMP(atomic)
             pi->fx += fx;
+            OMP(atomic)
             pi->fy += fy;
+            OMP(atomic)
+            pj->fx -= fx;
+            OMP(atomic)
+            pj->fy -= fy;
         }
     }
 }
