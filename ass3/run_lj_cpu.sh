@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --output=timings_cpu_4_compute_forces.log
+#SBATCH --output=timings_cpu_5_sim.log
 #SBATCH --time=01:00:00
 
 # Set OpenMP environment variables for thread placement and binding
