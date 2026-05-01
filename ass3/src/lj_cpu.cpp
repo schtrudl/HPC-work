@@ -252,27 +252,9 @@ static void cl_free(CellList* cl) {
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 
 // ---- Tiled force computation using the cell list ----
-// Neighbors are collected from the 3x3 neighbourhood and sorted in ascending
-// index order so that forces accumulate in the same order as the original
-// j = 0..n-1 loop, giving bit-identical floating-point results.
-
-// Upper bound on particles in the 3x3 neighbourhood (9 cells * ~56 particles
-// per cell at density 0.95, cell_size 2.8); 512 is conservative.
-#define MAX_NEIGHBORS 512
-
-// Insertion sort – k is typically small (≤ ~60), so this is fast.
-static inline void sort_int_asc(int* a, int n) {
-    for (int i = 1; i < n; i++) {
-        int key = a[i], j = i - 1;
-        while (j >= 0 && a[j] > key) {
-            a[j + 1] = a[j];
-            j--;
-        }
-        a[j + 1] = key;
-    }
-}
 
 double inline compute_forces_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+    const double rc2 = R_CUT * R_CUT;
     double pe = 0.0;
     OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
@@ -281,9 +263,6 @@ double inline compute_forces_tiled(Particle* particles, unsigned int n, double b
         int ci = cl->pcell[i];
         int cix = ci % cl->nx;
         int ciy = ci / cl->nx;
-
-        // Collect neighbour indices from the 3x3 neighbourhood
-        int nb[MAX_NEIGHBORS], nn = 0;
         for (int ndy = -1; ndy <= 1; ndy++) {
             int ncy = (ciy + ndy + cl->ny) % cl->ny;
             for (int ndx = -1; ndx <= 1; ndx++) {
@@ -291,27 +270,22 @@ double inline compute_forces_tiled(Particle* particles, unsigned int n, double b
                 int nc = ncy * cl->nx + ncx;
                 for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
                     if (j == (int)i) continue;
-                    nb[nn++] = j;
+                    const Particle* pj = &particles[j];
+                    double dx = pi->x - pj->x;
+                    double dy = pi->y - pj->y;
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    double r2 = dx * dx + dy * dy;
+                    if (r2 >= rc2 || r2 == 0.0) continue;
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij_r2 = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    fix += fij_r2 * dx;
+                    fiy += fij_r2 * dy;
+                    pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
                 }
             }
-        }
-        // Sort ascending so force accumulation order matches the original j=0..n-1 loop
-        sort_int_asc(nb, nn);
-
-        for (int a = 0; a < nn; a++) {
-            int j = nb[a];
-            const Particle* pj = &particles[j];
-            double dx = pi->x - pj->x;
-            double dy = pi->y - pj->y;
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) continue;
-            double sr = SIGMA / r;
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            fix += fij * dx / r;
-            fiy += fij * dy / r;
-            pe += 0.5 * (4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift);
         }
         pi->fx = fix;
         pi->fy = fiy;
@@ -320,6 +294,7 @@ double inline compute_forces_tiled(Particle* particles, unsigned int n, double b
 }
 
 void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+    const double rc2 = R_CUT * R_CUT;
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         Particle* pi = &particles[i];
@@ -327,8 +302,6 @@ void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, doub
         int ci = cl->pcell[i];
         int cix = ci % cl->nx;
         int ciy = ci / cl->nx;
-
-        int nb[MAX_NEIGHBORS], nn = 0;
         for (int ndy = -1; ndy <= 1; ndy++) {
             int ncy = (ciy + ndy + cl->ny) % cl->ny;
             for (int ndx = -1; ndx <= 1; ndx++) {
@@ -336,25 +309,21 @@ void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, doub
                 int nc = ncy * cl->nx + ncx;
                 for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
                     if (j == (int)i) continue;
-                    nb[nn++] = j;
+                    const Particle* pj = &particles[j];
+                    double dx = pi->x - pj->x;
+                    double dy = pi->y - pj->y;
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    double r2 = dx * dx + dy * dy;
+                    if (r2 >= rc2 || r2 == 0.0) continue;
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij_r2 = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    fix += fij_r2 * dx;
+                    fiy += fij_r2 * dy;
                 }
             }
-        }
-        sort_int_asc(nb, nn);
-
-        for (int a = 0; a < nn; a++) {
-            int j = nb[a];
-            const Particle* pj = &particles[j];
-            double dx = pi->x - pj->x;
-            double dy = pi->y - pj->y;
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) continue;
-            double sr = SIGMA / r;
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            fix += fij * dx / r;
-            fiy += fij * dy / r;
         }
         pi->fx = fix;
         pi->fy = fiy;
