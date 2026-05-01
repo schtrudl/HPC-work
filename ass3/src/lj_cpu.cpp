@@ -133,8 +133,235 @@ void inline first_update(Particle* particles, unsigned int n, double box_size) {
     }
 }
 
+// ============================================================
+// Cell list with Verlet skin: cells of size (R_CUT + CELL_SKIN).
+// The 3x3 neighbourhood is guaranteed to contain all pairs within
+// R_CUT as long as no particle has moved more than CELL_SKIN/2
+// from its position at the last rebuild.
+// ============================================================
+
+#define CELL_SKIN 0.3 /* extra buffer beyond R_CUT; tune for performance */
+
+typedef struct {
+    int nx, ny, n_cells;
+    double inv_cx, inv_cy; /* 1/cell_size for fast index computation */
+    double box_size; /* needed for minimum-image displacement check */
+    double skin2; /* (CELL_SKIN/2)^2 — rebuild trigger threshold  */
+    int* head; /* [n_cells] linked-list head per cell, -1 = empty */
+    int* next; /* [n]       next particle in same cell, -1 = end  */
+    int* pcell; /* [n]       current cell index per particle        */
+    double* ref_x; /* [n]       particle x at last rebuild             */
+    double* ref_y; /* [n]       particle y at last rebuild             */
+} CellList;
+
+static inline int cl_cell(const CellList* cl, double x, double y) {
+    int cx = (int)(x * cl->inv_cx);
+    int cy = (int)(y * cl->inv_cy);
+    if (cx < 0)
+        cx = 0;
+    else if (cx >= cl->nx)
+        cx = cl->nx - 1;
+    if (cy < 0)
+        cy = 0;
+    else if (cy >= cl->ny)
+        cy = cl->ny - 1;
+    return cy * cl->nx + cx;
+}
+
+static CellList* cl_create(unsigned int n, double box_size) {
+    CellList* cl = (CellList*)malloc(sizeof(CellList));
+    if (!cl) return NULL;
+    /* cell_size = R_CUT + CELL_SKIN ensures the 3x3 neighbourhood covers all
+       pairs within R_CUT even if the list is slightly stale (up to skin/2
+       displacement per particle).  Enforce nx >= 3 so periodic wrapping of
+       the neighbourhood is always valid. */
+    double cell_size = R_CUT + CELL_SKIN;
+    cl->nx = (int)(box_size / cell_size);
+    cl->ny = (int)(box_size / cell_size);
+    if (cl->nx < 3) cl->nx = 3;
+    if (cl->ny < 3) cl->ny = 3;
+    cl->n_cells = cl->nx * cl->ny;
+    cl->inv_cx = (double)cl->nx / box_size;
+    cl->inv_cy = (double)cl->ny / box_size;
+    cl->box_size = box_size;
+    cl->skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+    cl->head = (int*)malloc(cl->n_cells * sizeof(int));
+    cl->next = (int*)malloc(n * sizeof(int));
+    cl->pcell = (int*)malloc(n * sizeof(int));
+    cl->ref_x = (double*)malloc(n * sizeof(double));
+    cl->ref_y = (double*)malloc(n * sizeof(double));
+    if (!cl->head || !cl->next || !cl->pcell || !cl->ref_x || !cl->ref_y) {
+        free(cl->head);
+        free(cl->next);
+        free(cl->pcell);
+        free(cl->ref_x);
+        free(cl->ref_y);
+        free(cl);
+        return NULL;
+    }
+    return cl;
+}
+
+/* Reset and refill in-place — O(n), no malloc.
+   Also snapshots current positions as new rebuild reference. */
+static void cl_build(CellList* cl, const Particle* particles, unsigned int n) {
+    for (int c = 0; c < cl->n_cells; c++)
+        cl->head[c] = -1;
+    /* Iterate backwards so the linked list preserves ascending particle order. */
+    for (int i = (int)n - 1; i >= 0; i--) {
+        int c = cl_cell(cl, particles[i].x, particles[i].y);
+        cl->pcell[i] = c;
+        cl->next[i] = cl->head[c];
+        cl->head[c] = i;
+        cl->ref_x[i] = particles[i].x;
+        cl->ref_y[i] = particles[i].y;
+    }
+}
+
+/* Returns 1 if any particle has moved more than CELL_SKIN/2 from its
+   reference position (using minimum-image convention to handle wraps). */
+static int cl_needs_rebuild(const CellList* cl, const Particle* particles, unsigned int n) {
+    const double bs = cl->box_size;
+    const double skin2 = cl->skin2;
+    for (unsigned int i = 0; i < n; i++) {
+        double dx = particles[i].x - cl->ref_x[i];
+        double dy = particles[i].y - cl->ref_y[i];
+        /* minimum-image: avoids false positives when a particle wraps */
+        dx -= bs * nearbyint(dx / bs);
+        dy -= bs * nearbyint(dy / bs);
+        if (dx * dx + dy * dy > skin2) return 1;
+    }
+    return 0;
+}
+
+/* Rebuild in-place (no malloc). */
+static void cl_update(CellList* cl, const Particle* particles, unsigned int n) {
+    cl_build(cl, particles, n);
+}
+
+static void cl_free(CellList* cl) {
+    free(cl->head);
+    free(cl->next);
+    free(cl->pcell);
+    free(cl->ref_x);
+    free(cl->ref_y);
+    free(cl);
+}
+
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+
+// ---- Tiled force computation using the cell list ----
+// Neighbors are collected from the 3x3 neighbourhood and sorted in ascending
+// index order so that forces accumulate in the same order as the original
+// j = 0..n-1 loop, giving bit-identical floating-point results.
+
+// Upper bound on particles in the 3x3 neighbourhood (9 cells * ~56 particles
+// per cell at density 0.95, cell_size 2.8); 512 is conservative.
+#define MAX_NEIGHBORS 512
+
+// Insertion sort – k is typically small (≤ ~60), so this is fast.
+static inline void sort_int_asc(int* a, int n) {
+    for (int i = 1; i < n; i++) {
+        int key = a[i], j = i - 1;
+        while (j >= 0 && a[j] > key) {
+            a[j + 1] = a[j];
+            j--;
+        }
+        a[j + 1] = key;
+    }
+}
+
+double inline compute_forces_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+    double pe = 0.0;
+    OMP(parallel for reduction(+:pe))
+    for (unsigned int i = 0; i < n; ++i) {
+        Particle* pi = &particles[i];
+        double fix = 0.0, fiy = 0.0;
+        int ci = cl->pcell[i];
+        int cix = ci % cl->nx;
+        int ciy = ci / cl->nx;
+
+        // Collect neighbour indices from the 3x3 neighbourhood
+        int nb[MAX_NEIGHBORS], nn = 0;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + cl->ny) % cl->ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + cl->nx) % cl->nx;
+                int nc = ncy * cl->nx + ncx;
+                for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
+                    if (j == (int)i) continue;
+                    nb[nn++] = j;
+                }
+            }
+        }
+        // Sort ascending so force accumulation order matches the original j=0..n-1 loop
+        sort_int_asc(nb, nn);
+
+        for (int a = 0; a < nn; a++) {
+            int j = nb[a];
+            const Particle* pj = &particles[j];
+            double dx = pi->x - pj->x;
+            double dy = pi->y - pj->y;
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+            double r = sqrt(dx * dx + dy * dy);
+            if (r >= R_CUT || r == 0.0) continue;
+            double sr = SIGMA / r;
+            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+            fix += fij * dx / r;
+            fiy += fij * dy / r;
+            pe += 0.5 * (4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift);
+        }
+        pi->fx = fix;
+        pi->fy = fiy;
+    }
+    return pe;
+}
+
+void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        Particle* pi = &particles[i];
+        double fix = 0.0, fiy = 0.0;
+        int ci = cl->pcell[i];
+        int cix = ci % cl->nx;
+        int ciy = ci / cl->nx;
+
+        int nb[MAX_NEIGHBORS], nn = 0;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + cl->ny) % cl->ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + cl->nx) % cl->nx;
+                int nc = ncy * cl->nx + ncx;
+                for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
+                    if (j == (int)i) continue;
+                    nb[nn++] = j;
+                }
+            }
+        }
+        sort_int_asc(nb, nn);
+
+        for (int a = 0; a < nn; a++) {
+            int j = nb[a];
+            const Particle* pj = &particles[j];
+            double dx = pi->x - pj->x;
+            double dy = pi->y - pj->y;
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+            double r = sqrt(dx * dx + dy * dy);
+            if (r >= R_CUT || r == 0.0) continue;
+            double sr = SIGMA / r;
+            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+            fix += fij * dx / r;
+            fiy += fij * dy / r;
+        }
+        pi->fx = fix;
+        pi->fy = fiy;
+    }
+}
+
+// ---- Original naive O(n²) force computation (kept for reference) ----
 
 double inline compute_forces(Particle* particles, unsigned int n, double box_size) {
     double pe = 0.0;
@@ -225,7 +452,16 @@ void inline second_update(Particle* particles, unsigned int n) {
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
     SimulationResult out;
-    out.start_potential = compute_forces(particles, n, box_size);
+
+    /* Build the cell list once, outside the main loop. */
+    CellList* cl = cl_create(n, box_size);
+    if (!cl) {
+        fprintf(stderr, "Failed to allocate cell list.\n");
+        exit(1);
+    }
+    cl_build(cl, particles, n);
+
+    out.start_potential = compute_forces_tiled(particles, n, box_size, cl);
     out.start_kinetic = compute_ke(particles, n);
     out.start_total = out.start_kinetic + out.start_potential;
 
@@ -244,7 +480,11 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
         first_update(particles, n, box_size);
-        compute_forces_no_pe(particles, n, box_size);
+        // Rebuild cell list only when a particle has moved > CELL_SKIN/2
+        if (cl_needs_rebuild(cl, particles, n)) {
+            cl_update(cl, particles, n);
+        }
+        compute_forces_no_pe_tiled(particles, n, box_size, cl);
         second_update(particles, n);
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
@@ -256,7 +496,10 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         first_update(particles, n, box_size);
-        out.final_potential = compute_forces(particles, n, box_size);
+        if (cl_needs_rebuild(cl, particles, n)) {
+            cl_update(cl, particles, n);
+        }
+        out.final_potential = compute_forces_tiled(particles, n, box_size, cl);
         second_update(particles, n);
 
         out.final_kinetic = compute_ke(particles, n);
@@ -279,6 +522,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     }
 #endif
 
+    cl_free(cl);
     out.n = n;
     out.particles = particles;
     return out;
