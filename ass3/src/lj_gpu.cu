@@ -63,7 +63,7 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
 }
 
 __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
-    __extern__ __shared__ double sdata[];
+    extern __shared__ double sdata[];
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     double ke = 0.0;
@@ -254,7 +254,7 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
 }
 
 __global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
-    __extern__ __shared__ double sdata[];
+    extern __shared__ double sdata[];
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     double pe = 0.0;
     if (i < n) {
