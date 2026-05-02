@@ -405,7 +405,6 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     // each thread for one particle
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
-    usize shared_n = block_size_n.x * sizeof(double);
 
     // TODO(perf): if we measure this we can do upload and measure KE
     checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
@@ -413,12 +412,12 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     //out.start_potential = compute_forces(particles, n, box_size);
     //out.start_kinetic = compute_ke(particles, n);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_forces<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, box_size, d_result);
+    d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_ke<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, d_result);
+    d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -456,14 +455,14 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_forces<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, box_size, d_result);
+        d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
 
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_ke<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, d_result);
+        d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         out.final_total = out.final_kinetic + out.final_potential;
