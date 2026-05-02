@@ -16,6 +16,7 @@
 #include "lennard-jones.h"
 
 #define usize size_t
+#define WARP_SIZE 32
 
 // plotting functions
 #if GENERATE_GIF
@@ -66,7 +67,7 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
 // using shuffle instructions, which is more efficient than shared memory reduction
 __inline__ __device__ double warp_reduce(double val) {
     unsigned mask = __activemask();
-    for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
         val += __shfl_down_sync(mask, val, offset);
     }
     return val;
@@ -75,9 +76,9 @@ __inline__ __device__ double warp_reduce(double val) {
 // https://developer.nvidia.com/blog/faster-parallel-reductions-kepler/
 __device__ __inline__ double block_reduce(double val) {
     // max 1024 threads per block / 32 threads per warp = 32 warps
-    static __shared__ double sdata[32];
-    int lane = threadIdx.x % warpSize;  // thread id in warp
-    int warp = threadIdx.x / warpSize;  // warp id in block
+    static __shared__ double sdata[WARP_SIZE];  // shared memory for warp-level reductions
+    int lane = threadIdx.x % WARP_SIZE;  // thread id in warp
+    int warp = threadIdx.x / WARP_SIZE;  // warp id in block
 
     val = warp_reduce(val);  // each warp reduces to a single value
 
@@ -87,7 +88,7 @@ __device__ __inline__ double block_reduce(double val) {
     __syncthreads();  // await all warps
 
     // reduce the values from each warp using the first warp
-    val = (threadIdx.x < blockDim.x / warpSize) ? sdata[lane] : 0.0;
+    val = (threadIdx.x < blockDim.x / WARP_SIZE) ? sdata[lane] : 0.0;
     if (warp == 0) {
         val = warp_reduce(val);  // final reduction within the first warp
     }
@@ -95,8 +96,6 @@ __device__ __inline__ double block_reduce(double val) {
 }
 
 __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
-    // 32*32 <= 1024 threads per block
-    static __shared__ int sdata[warpSize];
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     double ke = 0.0;
