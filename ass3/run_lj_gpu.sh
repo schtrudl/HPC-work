@@ -7,8 +7,9 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_x.log
-#SBATCH --time=04:00:00
+#SBATCH --output=timings_gpu_xx.log
+#SBATCH --time=01:00:00
+#SBATCH --mem=64G
 #SBATCH --hint=nomultithread
 
 # Set OpenMP environment variables for thread placement and binding
