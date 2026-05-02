@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_xxx.log
+#SBATCH --output=timings_gpu_4_2D.log
 #SBATCH --time=01:00:00
 #SBATCH --mem=64G
 #SBATCH --hint=nomultithread
@@ -21,6 +21,6 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 module load CUDA
 
 #RUN
-#./run.py gpu -n=10 --srun
-module load FFmpeg
-./verify.py --srun gpu --full
+./run.py gpu -n=10 --srun
+#module load FFmpeg
+#./verify.py --srun gpu --full

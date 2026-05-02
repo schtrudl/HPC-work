@@ -368,14 +368,18 @@ __global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, doub
 
     // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
     double r = sqrt(dx * dx + dy * dy);
-    if (r >= R_CUT || r == 0.0) return;
+    double fx = 0.0, fy = 0.0;
+    if (!(r >= R_CUT || r == 0.0)) {
+        double sr = SIGMA / r;
+        double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
 
-    double sr = SIGMA / r;
-    double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+        fx = fij * dx / r;
+        fy = fij * dy / r;
+    }
 
     usize idx = (usize)i * n + j;
-    fx_buf[idx] = fij * dx / r;
-    fy_buf[idx] = fij * dy / r;
+    fx_buf[idx] = fx;
+    fy_buf[idx] = fy;
 }
 
 __global__ void d_reduce_forces(Particle* particles, unsigned int n, double* fx_buf, double* fy_buf) {
@@ -387,8 +391,6 @@ __global__ void d_reduce_forces(Particle* particles, unsigned int n, double* fx_
     for (unsigned int j = 0; j < n; ++j) {
         fx += fx_row[j];
         fy += fy_row[j];
-        fx_row[j] = 0.0;
-        fy_row[j] = 0.0;
     }
     particles[i].fx = fx;
     particles[i].fy = fy;
