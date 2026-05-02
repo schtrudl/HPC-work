@@ -60,10 +60,6 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
     return ke;
 }
 
-struct Particle {
-    double vx, vy;
-};
-
 __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -120,6 +116,7 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
 
     double current_temperature = ke / (double)n;
     if (current_temperature <= 0.0) {
+        init_cuda(particles, n, box_size);
         return 0;
     }
 
@@ -130,6 +127,7 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
         particles[k].vy *= scale;
     }
 
+    init_cuda(particles, n, box_size);
     return 1;
 }
 
@@ -157,7 +155,7 @@ void inline first_update(Particle* particles, unsigned int n, double box_size) {
     }
 }
 
-__device__ void d_first_update(Particle* particles, unsigned int n, double box_size) {
+__global__ void d_first_update(Particle* particles, unsigned int n, double box_size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
@@ -183,6 +181,10 @@ __device__ void d_first_update(Particle* particles, unsigned int n, double box_s
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+
+__device__ __forceinline__ double compute_v_shift(void) {
+    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+}
 
 double inline compute_forces(Particle* particles, unsigned int n, double box_size) {
     double pe = 0.0;
@@ -226,10 +228,11 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
     return pe;
 }
 
-__device__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
+__global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     double pe = 0.0;
+    double d_v_shift = compute_v_shift();
 
     Particle* pi = &particles[i];
     pi->fx = 0.0;
@@ -261,7 +264,7 @@ __device__ void d_compute_forces(Particle* particles, unsigned int n, double box
         pi->fx += fx;
         pi->fy += fy;
 
-        double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
+        double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - d_v_shift;
         pe += 0.5 * vij;
     }
 
@@ -304,7 +307,7 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
     }
 }
 
-__device__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
+__global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
@@ -349,7 +352,7 @@ void inline second_update(Particle* particles, unsigned int n) {
     }
 }
 
-__device__ void d_second_update(Particle* particles, unsigned int n) {
+__global__ void d_second_update(Particle* particles, unsigned int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     Particle* p = &particles[i];
@@ -368,10 +371,12 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     //out.start_kinetic = compute_ke(particles, n);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+    checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
+    checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     out.start_total = out.start_kinetic + out.start_potential;
@@ -390,9 +395,12 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
-        d_first_update<<<grid_size_n, block_size_n>>>(particles, n, box_size);
-        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(particles, n, box_size);
-        d_second_update<<<grid_size_n, block_size_n>>>(particles, n);
+        d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
+        checkCudaErrors(cudaGetLastError());
+        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
+        checkCudaErrors(cudaGetLastError());
+        d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
+        checkCudaErrors(cudaGetLastError());
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
@@ -402,14 +410,18 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 #endif
     }
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
-        d_first_update<<<grid_size_n, block_size_n>>>(particles, n, box_size);
+        d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
+        checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_forces<<<grid_size_n, block_size_n>>>(particles, n, box_size, d_result);
+        d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+        checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
-        d_second_update<<<grid_size_n, block_size_n>>>(particles, n);
+        d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
+        checkCudaErrors(cudaGetLastError());
 
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_ke<<<grid_size_n, block_size_n>>>(particles, n, d_result);
+        d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
+        checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         out.final_total = out.final_kinetic + out.final_potential;
         if (log_steps) {
@@ -425,7 +437,8 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         }
 #endif
     }
-    /*checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
+    /*
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         first_update(particles, n, box_size);
         out.final_potential = compute_forces(particles, n, box_size);
