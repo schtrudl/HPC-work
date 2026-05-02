@@ -60,10 +60,26 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
     return ke;
 }
 
+struct Particle {
+    double vx, vy;
+};
+
+__global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < n) {
+        const Particle p = particles[i];
+        double ke = 0.5 * (p.vx * p.vx + p.vy * p.vy);
+        atomicAdd(result, ke);
+    }
+}
+
 Particle* d_particles;
+double* d_result;
 
 void init_cuda(Particle* particles, unsigned int n, double box_size) {
     checkCudaErrors(cudaMalloc((void**)&d_particles, n * sizeof(Particle)));
+    checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
 }
 
 // TODO(perf): I think this method is not measured, so we need to do as much work here as possible (all?)
@@ -210,6 +226,48 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
     return pe;
 }
 
+__device__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double pe = 0.0;
+
+    Particle* pi = &particles[i];
+    pi->fx = 0.0;
+    pi->fy = 0.0;
+    for (unsigned int j = 0; j < n; ++j) {
+        if (j == i) {
+            continue;
+        }
+        Particle* pj = &particles[j];
+
+        // compute distance between particles with periodic boundary conditions
+        double dx = pi->x - pj->x;
+        double dy = pi->y - pj->y;
+
+        dx -= box_size * nearbyint(dx / box_size);
+        dy -= box_size * nearbyint(dy / box_size);
+
+        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+        double r = sqrt(dx * dx + dy * dy);
+        if (r >= R_CUT || r == 0.0) {
+            continue;
+        }
+        double sr = SIGMA / r;
+
+        double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+        double fx = fij * dx / r;
+        double fy = fij * dy / r;
+
+        pi->fx += fx;
+        pi->fy += fy;
+
+        double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
+        pe += 0.5 * vij;
+    }
+
+    atomicAdd(result, pe);
+}
+
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
@@ -303,12 +361,20 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     // each thread for one particle
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
-    SimulationResult out;
-    out.start_potential = compute_forces(particles, n, box_size);
-    out.start_kinetic = compute_ke(particles, n);
-    out.start_total = out.start_kinetic + out.start_potential;
     // TODO(perf): if we measure this we can do upload and measure KE
     checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
+    SimulationResult out;
+    //out.start_potential = compute_forces(particles, n, box_size);
+    //out.start_kinetic = compute_ke(particles, n);
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+    checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
+    checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+
+    out.start_total = out.start_kinetic + out.start_potential;
 
 #if GENERATE_GIF
     ge_GIF* gif = NULL;
@@ -329,12 +395,37 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         d_second_update<<<grid_size_n, block_size_n>>>(particles, n);
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
+            checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
 #endif
     }
-    checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
+    for (unsigned int step = steps_without_log; step < nsteps; step++) {
+        d_first_update<<<grid_size_n, block_size_n>>>(particles, n, box_size);
+        checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+        d_compute_forces<<<grid_size_n, block_size_n>>>(particles, n, box_size, d_result);
+        checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+        d_second_update<<<grid_size_n, block_size_n>>>(particles, n);
+
+        checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+        d_compute_ke<<<grid_size_n, block_size_n>>>(particles, n, d_result);
+        checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+        out.final_total = out.final_kinetic + out.final_potential;
+        if (log_steps) {
+            printf("step=%6u  KE=%12.6f  PE=%12.6f  E=%12.6f\n", step, out.final_kinetic, out.final_potential, out.final_total);
+        }
+
+#if GENERATE_GIF
+
+        if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
+            checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
+            render_frame_gif(gif, particles, n, box_size);
+            ge_add_frame(gif, FRAME_DELAY);
+        }
+#endif
+    }
+    /*checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         first_update(particles, n, box_size);
         out.final_potential = compute_forces(particles, n, box_size);
@@ -353,6 +444,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         }
 #endif
     }
+*/
 
 #if GENERATE_GIF
     if (gif) {
