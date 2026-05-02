@@ -15,6 +15,8 @@
 #include "gifenc.h"
 #include "lennard-jones.h"
 
+#define usize size_t
+
 // plotting functions
 #if GENERATE_GIF
 uint8_t palette[] = {0, 0, 0, 255, 255, 0};
@@ -61,12 +63,35 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
 }
 
 __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
+    __extern__ __shared__ double sdata[];
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
+    double ke = 0.0;
     if (i < n) {
         const Particle p = particles[i];
-        double ke = 0.5 * (p.vx * p.vx + p.vy * p.vy);
-        atomicAdd(result, ke);
+        ke = 0.5 * (p.vx * p.vx + p.vy * p.vy);
+    }
+    sdata[threadIdx.x] = ke;
+
+    __syncthreads();
+
+    // reduce KE in block
+    for (unsigned int s = blockDim.x >> 1; s > 32; s >>= 1) {
+        if (threadIdx.x < s) {
+            sdata[threadIdx.x] += sdata[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    // reduce last warp
+    for (unsigned int s = 32; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sdata[threadIdx.x] += sdata[threadIdx.x + s];
+        }
+        __syncwarp();
+    }
+
+    if (threadIdx.x == 0) {
+        atomicAdd(result, sdata[0]);
     }
 }
 
@@ -229,46 +254,69 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
 }
 
 __global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
+    __extern__ __shared__ double sdata[];
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
     double pe = 0.0;
-    double d_v_shift = compute_v_shift();
+    if (i < n) {
+        double d_v_shift = compute_v_shift();
 
-    Particle* pi = &particles[i];
-    pi->fx = 0.0;
-    pi->fy = 0.0;
-    for (unsigned int j = 0; j < n; ++j) {
-        if (j == i) {
-            continue;
+        Particle* pi = &particles[i];
+        pi->fx = 0.0;
+        pi->fy = 0.0;
+        for (unsigned int j = 0; j < n; ++j) {
+            if (j == i) {
+                continue;
+            }
+            Particle* pj = &particles[j];
+
+            // compute distance between particles with periodic boundary conditions
+            double dx = pi->x - pj->x;
+            double dy = pi->y - pj->y;
+
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+
+            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+            double r = sqrt(dx * dx + dy * dy);
+            if (r >= R_CUT || r == 0.0) {
+                continue;
+            }
+            double sr = SIGMA / r;
+
+            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+            double fx = fij * dx / r;
+            double fy = fij * dy / r;
+
+            pi->fx += fx;
+            pi->fy += fy;
+
+            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - d_v_shift;
+            pe += 0.5 * vij;
         }
-        Particle* pj = &particles[j];
+    }
+    sdata[threadIdx.x] = pe;
 
-        // compute distance between particles with periodic boundary conditions
-        double dx = pi->x - pj->x;
-        double dy = pi->y - pj->y;
+    __syncthreads();
 
-        dx -= box_size * nearbyint(dx / box_size);
-        dy -= box_size * nearbyint(dy / box_size);
-
-        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r = sqrt(dx * dx + dy * dy);
-        if (r >= R_CUT || r == 0.0) {
-            continue;
+    // reduce PE in block
+    for (unsigned int s = blockDim.x >> 1; s > 32; s >>= 1) {
+        if (threadIdx.x < s) {
+            sdata[threadIdx.x] += sdata[threadIdx.x + s];
         }
-        double sr = SIGMA / r;
-
-        double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-        double fx = fij * dx / r;
-        double fy = fij * dy / r;
-
-        pi->fx += fx;
-        pi->fy += fy;
-
-        double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - d_v_shift;
-        pe += 0.5 * vij;
+        __syncthreads();
     }
 
-    atomicAdd(result, pe);
+    // reduce last warp
+    for (unsigned int s = 32; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sdata[threadIdx.x] += sdata[threadIdx.x + s];
+        }
+        __syncwarp();
+    }
+
+    if (threadIdx.x == 0) {
+        atomicAdd(result, sdata[0]);
+    }
 }
 
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
@@ -364,18 +412,20 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     // each thread for one particle
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    usize shared_n = block_size_n.x * sizeof(double);
+
     // TODO(perf): if we measure this we can do upload and measure KE
     checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
     SimulationResult out;
     //out.start_potential = compute_forces(particles, n, box_size);
     //out.start_kinetic = compute_ke(particles, n);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+    d_compute_forces<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
+    d_compute_ke<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -413,14 +463,14 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+        d_compute_forces<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, box_size, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
 
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_ke<<<grid_size_n, block_size_n>>>(d_particles, n, d_result);
+        d_compute_ke<<<grid_size_n, block_size_n, shared_n>>>(d_particles, n, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         out.final_total = out.final_kinetic + out.final_potential;
