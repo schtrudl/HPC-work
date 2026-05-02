@@ -110,10 +110,16 @@ __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* 
 
 Particle* d_particles;
 double* d_result;
+double* d_fx_buf;  // n*n: fx_buf[i*n+j] = x-force that j exerts on i
+double* d_fy_buf;  // n*n: fy_buf[i*n+j] = y-force that j exerts on i
 
 void init_cuda(Particle* particles, unsigned int n, double box_size) {
     checkCudaErrors(cudaMalloc((void**)&d_particles, n * sizeof(Particle)));
     checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&d_fx_buf, (size_t)n * n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&d_fy_buf, (size_t)n * n * sizeof(double)));
+    checkCudaErrors(cudaMemset(d_fx_buf, 0, (size_t)n * n * sizeof(double)));
+    checkCudaErrors(cudaMemset(d_fy_buf, 0, (size_t)n * n * sizeof(double)));
 }
 
 // TODO(perf): I think this method is not measured, so we need to do as much work here as possible (all?)
@@ -266,49 +272,47 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
     return pe;
 }
 
-__global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* fx_buf, double* fy_buf, double* result) {
+    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
     double pe = 0.0;
-    if (i < n) {
-        double d_v_shift = compute_v_shift();
-
+    if (i < n && j < n && i != j) {
         Particle* pi = &particles[i];
-        pi->fx = 0.0;
-        pi->fy = 0.0;
-        for (unsigned int j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
-            Particle* pj = &particles[j];
+        Particle* pj = &particles[j];
 
-            // compute distance between particles with periodic boundary conditions
-            double dx = pi->x - pj->x;
-            double dy = pi->y - pj->y;
+        // compute distance between particles with periodic boundary conditions
+        double dx = pi->x - pj->x;
+        double dy = pi->y - pj->y;
 
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
+        dx -= box_size * nearbyint(dx / box_size);
+        dy -= box_size * nearbyint(dy / box_size);
 
-            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) {
-                continue;
-            }
+        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+        double r = sqrt(dx * dx + dy * dy);
+        if (r < R_CUT && r != 0.0) {
             double sr = SIGMA / r;
-
             double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            double fx = fij * dx / r;
-            double fy = fij * dy / r;
 
-            pi->fx += fx;
-            pi->fy += fy;
+            usize idx = (usize)i * n + j;
+            fx_buf[idx] = fij * dx / r;
+            fy_buf[idx] = fij * dy / r;
 
+            double d_v_shift = compute_v_shift();
             double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - d_v_shift;
-            pe += 0.5 * vij;
+            pe = 0.5 * vij;  // (j,i) thread contributes the other 0.5
         }
     }
 
-    pe = block_reduce(pe);
-    if (threadIdx.x == 0) atomicAdd(result, pe);
+    // assume 32x32 block
+    static __shared__ double sdata[WARP_SIZE];
+    pe = warp_reduce(pe);
+    if (threadIdx.x == 0) sdata[threadIdx.y] = pe;
+    __syncthreads();
+    pe = (threadIdx.y == 0) ? sdata[threadIdx.x] : 0.0;
+    if (threadIdx.y == 0) {
+        pe = warp_reduce(pe);
+    }
+    if (threadIdx.x == 0 && threadIdx.y == 0) atomicAdd(result, pe);
 }
 
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
@@ -347,40 +351,47 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
     }
 }
 
-__global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
+__global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size, double* fx_buf, double* fy_buf) {
+    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n || j >= n || i == j) return;
 
     Particle* pi = &particles[i];
-    pi->fx = 0.0;
-    pi->fy = 0.0;
+    Particle* pj = &particles[j];
+
+    // compute distance between particles with periodic boundary conditions
+    double dx = pi->x - pj->x;
+    double dy = pi->y - pj->y;
+
+    dx -= box_size * nearbyint(dx / box_size);
+    dy -= box_size * nearbyint(dy / box_size);
+
+    // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+    double r = sqrt(dx * dx + dy * dy);
+    if (r >= R_CUT || r == 0.0) return;
+
+    double sr = SIGMA / r;
+    double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+
+    usize idx = (usize)i * n + j;
+    fx_buf[idx] = fij * dx / r;
+    fy_buf[idx] = fij * dy / r;
+}
+
+__global__ void d_reduce_forces(Particle* particles, unsigned int n, double* fx_buf, double* fy_buf) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double fx = 0.0, fy = 0.0;
+    double* fx_row = fx_buf + (usize)i * n;
+    double* fy_row = fy_buf + (usize)i * n;
     for (unsigned int j = 0; j < n; ++j) {
-        if (j == i) {
-            continue;
-        }
-        Particle* pj = &particles[j];
-
-        // compute distance between particles with periodic boundary conditions
-        double dx = pi->x - pj->x;
-        double dy = pi->y - pj->y;
-
-        dx -= box_size * nearbyint(dx / box_size);
-        dy -= box_size * nearbyint(dy / box_size);
-
-        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r = sqrt(dx * dx + dy * dy);
-        if (r >= R_CUT || r == 0.0) {
-            continue;
-        }
-        double sr = SIGMA / r;
-
-        double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-        double fx = fij * dx / r;
-        double fy = fij * dy / r;
-
-        pi->fx += fx;
-        pi->fy += fy;
+        fx += fx_row[j];
+        fy += fy_row[j];
+        fx_row[j] = 0.0;
+        fy_row[j] = 0.0;
     }
+    particles[i].fx = fx;
+    particles[i].fy = fy;
 }
 
 void inline second_update(Particle* particles, unsigned int n) {
@@ -405,13 +416,20 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
+    // 2D grid: each thread handles one (i,j) pair without any symmetry optimization
+    dim3 block_size_2d(32, 32);
+    unsigned int n_ceil_2d = (n + 31) / 32;
+    dim3 grid_size_2d(n_ceil_2d, n_ceil_2d);
+
     // TODO(perf): if we measure this we can do upload and measure KE
     checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
     SimulationResult out;
     //out.start_potential = compute_forces(particles, n, box_size);
     //out.start_kinetic = compute_ke(particles, n);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+    d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf, d_result);
+    checkCudaErrors(cudaGetLastError());
+    d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, d_fx_buf, d_fy_buf);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -438,7 +456,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         // leapfrog
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
+        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf);
+        checkCudaErrors(cudaGetLastError());
+        d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, d_fx_buf, d_fy_buf);
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
@@ -454,7 +474,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_forces<<<grid_size_n, block_size_n>>>(d_particles, n, box_size, d_result);
+        d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf, d_result);
+        checkCudaErrors(cudaGetLastError());
+        d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, d_fx_buf, d_fy_buf);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
