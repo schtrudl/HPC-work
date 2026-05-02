@@ -62,8 +62,41 @@ double inline compute_ke(const Particle* particles, unsigned int n) {
     return ke;
 }
 
+// special function that performs warp-level reduction to sum
+// using shuffle instructions, which is more efficient than shared memory reduction
+__inline__ __device__ double warp_reduce(double val) {
+    unsigned mask = __activemask();
+    for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+        val += __shfl_down_sync(mask, val, offset);
+    }
+    return val;
+}
+
+// https://developer.nvidia.com/blog/faster-parallel-reductions-kepler/
+__device__ __inline__ double block_reduce(double val) {
+    // max 1024 threads per block / 32 threads per warp = 32 warps
+    static __shared__ double sdata[32];
+    int lane = threadIdx.x % warpSize;  // thread id in warp
+    int warp = threadIdx.x / warpSize;  // warp id in block
+
+    val = warp_reduce(val);  // each warp reduces to a single value
+
+    if (lane == 0) {
+        sdata[warp] = val;
+    }
+    __syncthreads();  // await all warps
+
+    // reduce the values from each warp using the first warp
+    val = (threadIdx.x < blockDim.x / warpSize) ? sdata[lane] : 0.0;
+    if (warp == 0) {
+        val = warp_reduce(val);  // final reduction within the first warp
+    }
+    return val;  // only thread 0 will have the final result
+}
+
 __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* result) {
-    extern __shared__ double sdata[];
+    // 32*32 <= 1024 threads per block
+    static __shared__ int sdata[warpSize];
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     double ke = 0.0;
@@ -71,28 +104,9 @@ __global__ void d_compute_ke(const Particle* particles, unsigned int n, double* 
         const Particle p = particles[i];
         ke = 0.5 * (p.vx * p.vx + p.vy * p.vy);
     }
-    sdata[threadIdx.x] = ke;
 
-    __syncthreads();
-
-    // reduce KE in block
-    for (unsigned int s = blockDim.x >> 1; s > 32; s >>= 1) {
-        if (threadIdx.x < s) {
-            sdata[threadIdx.x] += sdata[threadIdx.x + s];
-        }
-        __syncthreads();
-    }
-    // reduce last warp
-    for (unsigned int s = 32; s > 0; s >>= 1) {
-        if (threadIdx.x < s) {
-            sdata[threadIdx.x] += sdata[threadIdx.x + s];
-        }
-        __syncwarp();
-    }
-
-    if (threadIdx.x == 0) {
-        atomicAdd(result, sdata[0]);
-    }
+    ke = block_reduce(ke);
+    if (threadIdx.x == 0) atomicAdd(result, ke);
 }
 
 Particle* d_particles;
@@ -294,29 +308,9 @@ __global__ void d_compute_forces(Particle* particles, unsigned int n, double box
             pe += 0.5 * vij;
         }
     }
-    sdata[threadIdx.x] = pe;
 
-    __syncthreads();
-
-    // reduce PE in block
-    for (unsigned int s = blockDim.x >> 1; s > 32; s >>= 1) {
-        if (threadIdx.x < s) {
-            sdata[threadIdx.x] += sdata[threadIdx.x + s];
-        }
-        __syncthreads();
-    }
-
-    // reduce last warp
-    for (unsigned int s = 32; s > 0; s >>= 1) {
-        if (threadIdx.x < s) {
-            sdata[threadIdx.x] += sdata[threadIdx.x + s];
-        }
-        __syncwarp();
-    }
-
-    if (threadIdx.x == 0) {
-        atomicAdd(result, sdata[0]);
-    }
+    pe = block_reduce(pe);
+    if (threadIdx.x == 0) atomicAdd(result, pe);
 }
 
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
