@@ -117,10 +117,7 @@ void init_cuda(Particle* particles, unsigned int n, double box_size) {
     unsigned int n_ceil_2d = (n + 31) / 32;
     checkCudaErrors(cudaMalloc((void**)&d_particles, n * sizeof(Particle)));
     checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
-    checkCudaErrors(cudaMalloc((void**)&d_fx_buf, (size_t)n * n_ceil_2d * sizeof(double)));
-    checkCudaErrors(cudaMalloc((void**)&d_fy_buf, (size_t)n * n_ceil_2d * sizeof(double)));
-    checkCudaErrors(cudaMemset(d_fx_buf, 0, (size_t)n * n_ceil_2d * sizeof(double)));
-    checkCudaErrors(cudaMemset(d_fy_buf, 0, (size_t)n * n_ceil_2d * sizeof(double)));
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
 }
 
 // TODO(perf): I think this method is not measured, so we need to do as much work here as possible (all?)
@@ -273,6 +270,14 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
     return pe;
 }
 
+__global__ void d_zero_forces(Particle* particles, unsigned int n) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        particles[i].fx = 0.0;
+        particles[i].fy = 0.0;
+    }
+}
+
 __global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* fx_buf, double* fy_buf, double* result) {
     unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
     unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -302,23 +307,14 @@ __global__ void d_compute_forces(Particle* particles, unsigned int n, double box
         }
     }
 
-    fx = warp_reduce(fx);
-    fy = warp_reduce(fy);
-    if (threadIdx.x == 0 && i < n) {
-        usize idx = (usize)i * gridDim.x + blockIdx.x;
-        fx_buf[idx] = fx;
-        fy_buf[idx] = fy;
+    fx = block_reduce(fx);
+    fy = block_reduce(fy);
+    pe = block_reduce(pe);
+    if (threadIdx.x == 0) {
+        atomicAdd(&particles[j].fx, fx);
+        atomicAdd(&particles[j].fy, fy);
+        atomicAdd(result, pe);
     }
-
-    static __shared__ double sdata[WARP_SIZE];
-    pe = warp_reduce(pe);
-    if (threadIdx.x == 0) sdata[threadIdx.y] = pe;
-    __syncthreads();
-    pe = (threadIdx.y == 0) ? sdata[threadIdx.x] : 0.0;
-    if (threadIdx.y == 0) {
-        pe = warp_reduce(pe);
-    }
-    if (threadIdx.x == 0 && threadIdx.y == 0) atomicAdd(result, pe);
 }
 
 void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
@@ -382,12 +378,11 @@ __global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, doub
         }
     }
 
-    fx = warp_reduce(fx);
-    fy = warp_reduce(fy);
-    if (threadIdx.x == 0 && i < n) {
-        usize idx = (usize)i * gridDim.x + blockIdx.x;
-        fx_buf[idx] = fx;
-        fy_buf[idx] = fy;
+    fx = block_reduce(fx);
+    fy = block_reduce(fy);
+    if (threadIdx.x == 0) {
+        atomicAdd(&particles[j].fx, fx);
+        atomicAdd(&particles[j].fy, fy);
     }
 }
 
@@ -431,19 +426,18 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
     // 2D grid: each thread handles one (i,j) pair without any symmetry optimization
-    dim3 block_size_2d(32, 32);
-    unsigned int n_ceil_2d = (n + 31) / 32;
-    dim3 grid_size_2d(n_ceil_2d, n_ceil_2d);
+    dim3 block_size_2d(256, 1);
+    dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
 
     // TODO(perf): if we measure this we can do upload and measure KE
     checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
     SimulationResult out;
     //out.start_potential = compute_forces(particles, n, box_size);
     //out.start_kinetic = compute_ke(particles, n);
-    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf, d_result);
+    // result is zeroed from init
+    d_zero_forces<<<grid_size_n, block_size_n>>>(d_particles, n);
     checkCudaErrors(cudaGetLastError());
-    d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, n_ceil_2d, d_fx_buf, d_fy_buf);
+    d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -470,9 +464,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         // leapfrog
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf);
+        d_zero_forces<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
-        d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, n_ceil_2d, d_fx_buf, d_fy_buf);
+        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf);
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
@@ -488,9 +482,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         d_first_update<<<grid_size_n, block_size_n>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf, d_result);
+        d_zero_forces<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
-        d_reduce_forces<<<grid_size_n, block_size_n>>>(d_particles, n, n_ceil_2d, d_fx_buf, d_fy_buf);
+        d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
