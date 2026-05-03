@@ -278,7 +278,7 @@ __global__ void d_zero_forces(Particle* particles, unsigned int n) {
     }
 }
 
-__global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* fx_buf, double* fy_buf, double* result) {
+__global__ void d_compute_forces(Particle* particles, unsigned int n, double box_size, double* result) {
     unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
     unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
     double pe = 0.0, fx = 0.0, fy = 0.0;
@@ -311,8 +311,8 @@ __global__ void d_compute_forces(Particle* particles, unsigned int n, double box
     fy = block_reduce(fy);
     pe = block_reduce(pe);
     if (threadIdx.x == 0) {
-        atomicAdd(&particles[j].fx, fx);
-        atomicAdd(&particles[j].fy, fy);
+        atomicAdd(&particles[i].fx, fx);
+        atomicAdd(&particles[i].fy, fy);
         atomicAdd(result, pe);
     }
 }
@@ -353,7 +353,7 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
     }
 }
 
-__global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size, double* fx_buf, double* fy_buf) {
+__global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
     unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
     unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
     double fx = 0.0, fy = 0.0;
@@ -381,8 +381,8 @@ __global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, doub
     fx = block_reduce(fx);
     fy = block_reduce(fy);
     if (threadIdx.x == 0) {
-        atomicAdd(&particles[j].fx, fx);
-        atomicAdd(&particles[j].fy, fy);
+        atomicAdd(&particles[i].fx, fx);
+        atomicAdd(&particles[i].fy, fy);
     }
 }
 
@@ -466,7 +466,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         checkCudaErrors(cudaGetLastError());
         d_zero_forces<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());
-        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size, d_fx_buf, d_fy_buf);
+        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_particles, n, box_size);
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_particles, n);
         checkCudaErrors(cudaGetLastError());

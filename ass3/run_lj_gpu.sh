@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_5_2D_WARP_reduce.log
+#SBATCH --output=timings_gpu_6_2D_y_1.log
 #SBATCH --time=01:00:00
 #SBATCH --mem=64G
 #SBATCH --hint=nomultithread
