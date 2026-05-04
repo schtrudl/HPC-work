@@ -142,17 +142,15 @@ void inline first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n, doub
     }
 }
 
-// ============================================================
-// Cell list with Verlet skin: cells of size (R_CUT + CELL_SKIN).
-// The 3x3 neighbourhood is guaranteed to contain all pairs within
-// R_CUT as long as no particle has moved more than CELL_SKIN/2
-// from its position at the last rebuild.
-// ============================================================
+#ifndef CELL_SKIN
+    // TODO: search for good value for this parameter
+    #define CELL_SKIN 0.3
+#endif
 
-#define CELL_SKIN 0.3 /* extra buffer beyond R_CUT; tune for performance */
-
-constexpr double skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
-
+/// Cell list with Verlet skin: cells of size (R_CUT + overlapping CELL_SKIN).
+/// The 3x3 neighbourhood is guaranteed to contain all pairs within
+/// R_CUT as long as no particle has moved more than CELL_SKIN/2
+/// from its position since last rebuild.
 typedef struct {
     int nx, ny, n_cells;
     double inv_cx, inv_cy; /* 1/cell_size for fast index computation */
@@ -163,24 +161,9 @@ typedef struct {
     double* ref_y; /* [n]       particle y at last rebuild             */
 } CellList;
 
-static inline int cl_cell(const CellList* cl, double x, double y) {
-    int cx = (int)(x * cl->inv_cx);
-    int cy = (int)(y * cl->inv_cy);
-    if (cx < 0)
-        cx = 0;
-    else if (cx >= cl->nx)
-        cx = cl->nx - 1;
-    if (cy < 0)
-        cy = 0;
-    else if (cy >= cl->ny)
-        cy = cl->ny - 1;
-    return cy * cl->nx + cx;
-}
-
-static CellList* cl_create(unsigned int n, double box_size) {
+CellList* cl_create(unsigned int n, double box_size) {
     CellList* cl = (CellList*)malloc(sizeof(CellList));
-    if (!cl) return NULL;
-    /* cell_size = R_CUT + CELL_SKIN ensures the 3x3 neighbourhood covers all
+    /* cell_size = R_CUT + CELL_SKIN ensures the 3x3 neighbourhood tiles covers all
        pairs within R_CUT even if the list is slightly stale (up to skin/2
        displacement per particle).  Enforce nx >= 3 so periodic wrapping of
        the neighbourhood is always valid. */
@@ -200,12 +183,25 @@ static CellList* cl_create(unsigned int n, double box_size) {
     return cl;
 }
 
-/* Reset and refill in-place — O(n), no malloc.
-   Also snapshots current positions as new rebuild reference. */
-static void cl_rebuild(CellList* cl, const Vec2* const pos, unsigned int n) {
+/// compute cell index (tile) for given postion
+inline int cl_cell(const CellList* cl, double x, double y) {
+    int cx = (int)(x * cl->inv_cx);
+    int cy = (int)(y * cl->inv_cy);
+    if (cx < 0)
+        cx = 0;
+    else if (cx >= cl->nx)
+        cx = cl->nx - 1;
+    if (cy < 0)
+        cy = 0;
+    else if (cy >= cl->ny)
+        cy = cl->ny - 1;
+    return cy * cl->nx + cx;
+}
+
+void cl_rebuild(CellList* cl, const Vec2* const pos, unsigned int n) {
     for (int c = 0; c < cl->n_cells; c++)
         cl->head[c] = -1;
-    /* Iterate backwards so the linked list preserves ascending particle order. */
+
     for (int i = (int)n - 1; i >= 0; i--) {
         int c = cl_cell(cl, pos[i].x, pos[i].y);
         cl->pcell[i] = c;
@@ -216,18 +212,19 @@ static void cl_rebuild(CellList* cl, const Vec2* const pos, unsigned int n) {
     }
 }
 
-/* Returns 1 if any particle has moved more than CELL_SKIN/2 from its
-   reference position (using minimum-image convention to handle wraps). */
-static int cl_needs_rebuild(const CellList* cl, const Vec2* const pos, const unsigned int n, const double bs) {
+constexpr double skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+
+/// Has any particle moved more than CELL_SKIN/2 from its
+/// reference position.
+bool cl_needs_rebuild(const CellList* cl, const Vec2* const pos, const unsigned int n, const double bs) {
     for (unsigned int i = 0; i < n; i++) {
         double dx = pos[i].x - cl->ref_x[i];
         double dy = pos[i].y - cl->ref_y[i];
-        /* minimum-image: avoids false positives when a particle wraps */
         dx -= bs * nearbyint(dx / bs);
         dy -= bs * nearbyint(dy / bs);
-        if (dx * dx + dy * dy > skin2) return 1;
+        if (dx * dx + dy * dy > skin2) return true;
     }
-    return 0;
+    return false;
 }
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
