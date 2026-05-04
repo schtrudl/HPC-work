@@ -243,11 +243,13 @@ __global__ void d_first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n
 }
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
-const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+constexpr double sigma_over_rcut = SIGMA / R_CUT;
+constexpr double sigma_over_rcut_2 = sigma_over_rcut * sigma_over_rcut;
+constexpr double sigma_over_rcut_6 = sigma_over_rcut_2 * sigma_over_rcut_2 * sigma_over_rcut_2;
+constexpr double sigma_over_rcut_12 = sigma_over_rcut_6 * sigma_over_rcut_6;
+constexpr double v_shift = 4.0 * EPSILON * (sigma_over_rcut_12 - sigma_over_rcut_6);
 
-__device__ __forceinline__ double compute_v_shift(void) {
-    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
-}
+constexpr double rc2 = R_CUT * R_CUT;
 
 double inline compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_size) {
     double pe = 0.0;
@@ -271,20 +273,22 @@ double inline compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_
             dy -= box_size * nearbyint(dy / box_size);
 
             // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) {
+            double r2 = dx * dx + dy * dy;
+            if (r2 >= rc2 || r2 == 0.0) {
                 continue;
             }
-            double sr = SIGMA / r;
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
 
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            double fx = fij * dx / r;
-            double fy = fij * dy / r;
+            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            double fx = fij * dx;
+            double fy = fij * dy;
 
             fi->x += fx;
             fi->y += fy;
 
-            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
+            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
             pe += 0.5 * vij;
         }
     }
@@ -308,15 +312,16 @@ __global__ void d_compute_forces(Vec2* pos, Vec2* force, unsigned int n, double 
         dy -= box_size * nearbyint(dy / box_size);
 
         // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r = sqrt(dx * dx + dy * dy);
-        if (r < R_CUT && r != 0.0) {
-            double sr = SIGMA / r;
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            fx = fij * dx / r;
-            fy = fij * dy / r;
+        double r2 = dx * dx + dy * dy;
+        if (r2 < rc2 && r2 != 0.0) {
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
+            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            fx = fij * dx;
+            fy = fij * dy;
 
-            double d_v_shift = compute_v_shift();
-            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - d_v_shift;
+            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
             pe = 0.5 * vij;  // (j,i) thread contributes the other 0.5
         }
     }
@@ -352,15 +357,17 @@ void inline compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double 
             dy -= box_size * nearbyint(dy / box_size);
 
             // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) {
+            double r2 = dx * dx + dy * dy;
+            if (r2 >= rc2 || r2 == 0.0) {
                 continue;
             }
-            double sr = SIGMA / r;
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
 
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            double fx = fij * dx / r;
-            double fy = fij * dy / r;
+            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            double fx = fij * dx;
+            double fy = fij * dy;
 
             fi->x += fx;
             fi->y += fy;
@@ -384,12 +391,14 @@ __global__ void d_compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, d
         dy -= box_size * nearbyint(dy / box_size);
 
         // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r = sqrt(dx * dx + dy * dy);
-        if (r < R_CUT && r != 0.0) {
-            double sr = SIGMA / r;
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            fx = fij * dx / r;
-            fy = fij * dy / r;
+        double r2 = dx * dx + dy * dy;
+        if (r2 < rc2 && r2 != 0.0) {
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
+            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            fx = fij * dx;
+            fy = fij * dy;
         }
     }
 

@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_10_soa.log
+#SBATCH --output=timings_gpu_11_better_math.log
 #SBATCH --time=00:30:00
 #SBATCH --mem=64G
 #SBATCH --hint=nomultithread
