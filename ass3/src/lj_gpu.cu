@@ -13,7 +13,7 @@
 #include "helper_cuda.h"
 
 #include "gifenc.h"
-#include "lennard-jones.h"
+#include "vec2-lennard-jones.h"
 
 #define usize size_t
 #define WARP_SIZE 32
@@ -34,8 +34,8 @@ void render_frame_gif(ge_GIF* gif, const Particle* particles, unsigned int n, do
     memset(gif->frame, 0, FRAME_WIDTH * FRAME_HEIGHT);
 
     for (unsigned int i = 0; i < n; ++i) {
-        int px = (int)(particles[0].pos[i].x / box_size * (double)(FRAME_WIDTH - 1));
-        int py = (int)(particles[0].pos[i].y / box_size * (double)(FRAME_HEIGHT - 1));
+        int px = (int)(particles[0].position[i].x / box_size * (double)(FRAME_WIDTH - 1));
+        int py = (int)(particles[0].position[i].y / box_size * (double)(FRAME_HEIGHT - 1));
         py = (FRAME_HEIGHT - 1) - py;
 
         for (int dy = -FRAME_PARTICLE_RADIUS; dy <= FRAME_PARTICLE_RADIUS; ++dy) {
@@ -127,9 +127,9 @@ void init_cuda(Particle* particles, unsigned int n, double box_size) {
 // TODO(perf): I think this method is not measured, so we need to do as much work here as possible (all?)
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature) {
     srand(seed);
-    Vec2* pos = (Vec2*)calloc(n * sizeof(Vec2));
-    Vec2* vel = (Vec2*)calloc(n * sizeof(Vec2));
-    Vec2* force = (Vec2*)calloc(n * sizeof(Vec2));
+    Vec2* pos = (Vec2*)calloc(n, sizeof(Vec2));
+    Vec2* vel = (Vec2*)calloc(n, sizeof(Vec2));
+    Vec2* force = (Vec2*)calloc(n, sizeof(Vec2));
     unsigned int n_side = (unsigned int)ceil(sqrt((double)n));
     double placement_size = placement_fraction * box_size;
     double offset = 0.5 * (box_size - placement_size);
@@ -187,11 +187,11 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
 void inline first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n, double box_size) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        const Vec2* p_pos = &pos[i];
-        const Vec2* p_vel = &vel[i];
-        const Vec2* p_force = &force[i];
-        p_vel->x += 0.5 * DT * p_force->x;
-        p_vel->y += 0.5 * DT * p_force->y;
+        Vec2* p_pos = &pos[i];
+        Vec2* p_vel = &vel[i];
+        const Vec2 p_force = force[i];
+        p_vel->x += 0.5 * DT * p_force.x;
+        p_vel->y += 0.5 * DT * p_force.y;
 
         // fused wrap_positions
         // apply periodic boundary conditions to ensure particles stay within the simulation box
@@ -214,8 +214,8 @@ __global__ void d_first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    const Vec2* p_pos = &pos[i];
-    const Vec2* p_vel = &vel[i];
+    Vec2* p_pos = &pos[i];
+    Vec2* p_vel = &vel[i];
     const Vec2 p_force = force[i];
     p_vel->x += 0.5 * DT * p_force.x;
     p_vel->y += 0.5 * DT * p_force.y;
@@ -248,7 +248,7 @@ double inline compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_
     OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
         const Vec2 pi = pos[i];
-        const Vec2* fi = &force[i];
+        Vec2* fi = &force[i];
         fi->x = 0.0;
         fi->y = 0.0;
         for (unsigned int j = 0; j < n; ++j) {
@@ -329,14 +329,14 @@ void inline compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double 
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
         const Vec2 pi = pos[i];
-        const Vec2* fi = &force[i];
+        Vec2* fi = &force[i];
         fi->x = 0.0;
         fi->y = 0.0;
         for (unsigned int j = 0; j < n; ++j) {
             if (j == i) {
                 continue;
             }
-            Vec2 pj = pos[j];
+            const Vec2 pj = pos[j];
 
             // compute distance between particles with periodic boundary conditions
             double dx = pi.x - pj.x;
@@ -398,7 +398,7 @@ __global__ void d_compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, d
 void inline second_update(Vec2* vel, Vec2* force, unsigned int n) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        const Vec2* v = &vel[i];
+        Vec2* v = &vel[i];
         const Vec2 f = force[i];
         v->x += 0.5 * DT * f.x;
         v->y += 0.5 * DT * f.y;
@@ -408,7 +408,7 @@ void inline second_update(Vec2* vel, Vec2* force, unsigned int n) {
 __global__ void d_second_update(Vec2* vel, Vec2* force, unsigned int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    const Vec2* v = &vel[i];
+    Vec2* v = &vel[i];
     const Vec2 f = force[i];
     v->x += 0.5 * DT * f.x;
     v->y += 0.5 * DT * f.y;
@@ -457,7 +457,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
-        d_first_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n, box_size);
+        d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
         d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size);
@@ -466,14 +466,14 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         checkCudaErrors(cudaGetLastError());
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
-            checkCudaErrors(cudaMemcpy(particles, d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost));
+            checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
 #endif
     }
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
-        d_first_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n, box_size);
+        d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
@@ -495,16 +495,14 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 #if GENERATE_GIF
 
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
-            checkCudaErrors(cudaMemcpy(particles[0].pos, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
-            checkCudaErrors(cudaMemcpy(particles[0].vel, d_vel, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
-            checkCudaErrors(cudaMemcpy(particles[0].force, d_force, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
+            checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
 #endif
     }
-    checkCudaErrors(cudaMemcpy(particles[0].pos, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
-    checkCudaErrors(cudaMemcpy(particles[0].vel, d_vel, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(particles[0].velocity, d_vel, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(particles[0].force, d_force, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     /*
     for (unsigned int step = steps_without_log; step < nsteps; step++) {

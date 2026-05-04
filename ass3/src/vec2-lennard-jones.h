@@ -35,7 +35,7 @@ typedef struct {
 
 typedef struct {
     unsigned int n;
-    const Particle* particle;
+    const Particle* particles;
     double start_kinetic;
     double start_potential;
     double start_total;
