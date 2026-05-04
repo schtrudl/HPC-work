@@ -21,10 +21,14 @@ extern "C" {
 #define FRAME_DELAY 3
 #define GIF_FILE "simulation.gif"
 
+#if LJ_GPU
+    #define Vec2 double2
+#else
 typedef struct {
     double x;
     double y;
 } Vec2;
+#endif
 
 // XXX: is this valid trick for challange
 typedef struct {

@@ -16,7 +16,7 @@ parser.add_argument(
 # valid binaries are lenia_cpu and lenia_gpu
 parser.add_argument(
     "binary",
-    choices=["lj_cpu", "lj_gpu", "cpu", "gpu"],
+    choices=["lj_cpu", "lj_gpu", "lj_cpu2", "cpu", "gpu", "cpu2"],
 )
 parser.add_argument(
     "--particles",
@@ -36,7 +36,7 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-binary = "lj_cpu" if "cpu" in args.binary else "lj_gpu"
+binary = args.binary if args.binary.startswith("lj_") else f"lj_{args.binary}"
 if not args.particles:
     args.particles = [1000, 2000, 4000, 8000]
 

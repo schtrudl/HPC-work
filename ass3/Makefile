@@ -6,9 +6,9 @@ ifdef GENERATE_GIF
 GIF_FLAG = -DGENERATE_GIF
 endif
 
-.PHONY: all lj_cpu lj_gpu clean
+.PHONY: all lj_cpu lj_gpu lj_cpu2 clean
 
-all: lj_cpu lj_gpu
+all: lj_cpu lj_gpu lj_cpu2
 
 lj_cpu:
 	c++ $(GIF_FLAG) -O3 -march=native --openmp ./src/lj_cpu.cpp -o lj_cpu $(LDLIBS)
@@ -16,5 +16,8 @@ lj_cpu:
 lj_gpu:
 	nvcc $(GIF_FLAG) $(CFLAGS) ./src/lj_gpu.cu -o lj_gpu $(LDLIBS)
 
+lj_cpu2:
+	nvcc $(GIF_FLAG) -DLJ_GPU=0 $(CFLAGS) ./src/lj_gpu.cu -o lj_cpu2 $(LDLIBS)
+
 clean:
-	rm -f lj_cpu lj_gpu
+	rm -f lj_cpu lj_gpu lj_cpu2

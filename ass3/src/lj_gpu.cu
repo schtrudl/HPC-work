@@ -7,12 +7,16 @@
 #define OMP(x) DO_PRAGMA(omp x)
 #define DO_PRAGMA(x) _Pragma(#x)
 
-// Include CUDA headers
-#include <cuda_runtime.h>
-#include <cuda.h>
-#include "helper_cuda.h"
-
 #include "gifenc.h"
+#ifndef LJ_GPU
+    #define LJ_GPU 1
+#endif
+#if LJ_GPU
+    // Include CUDA headers
+    #include <cuda_runtime.h>
+    #include <cuda.h>
+    #include "helper_cuda.h"
+#endif
 #include "vec2-lennard-jones.h"
 
 #define usize size_t
@@ -114,6 +118,7 @@ Vec2* d_force;
 double* d_result;
 
 void init_cuda(Particle* particles, unsigned int n, double box_size) {
+#if LJ_GPU
     unsigned int n_ceil_2d = (n + 31) / 32;
     //checkCudaErrors(cudaMalloc((void**)&d_particles, n * sizeof(Particle)));
     checkCudaErrors(cudaMalloc((void**)&d_pos, n * sizeof(Vec2)));
@@ -122,6 +127,7 @@ void init_cuda(Particle* particles, unsigned int n, double box_size) {
     checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
+#endif
 }
 
 // TODO(perf): I think this method is not measured, so we need to do as much work here as possible (all?)
@@ -415,22 +421,20 @@ __global__ void d_second_update(Vec2* vel, Vec2* force, unsigned int n) {
 }
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
+    SimulationResult out;
+#if LJ_GPU
+
     // each thread for one particle
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
-    // 2D grid: each thread handles one (i,j) pair without any symmetry optimization
+    // 2D grid for n**2
     dim3 block_size_2d(256, 1);
     dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
 
-    // TODO(perf): if we measure this we can do upload and measure KE
-    //checkCudaErrors(cudaMemcpyAsync(d_particles, particles, n * sizeof(Particle), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_vel, particles[0].velocity, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     // forces are zeroed on initialize_particles
-    SimulationResult out;
-    //out.start_potential = compute_forces(particles, n, box_size);
-    //out.start_kinetic = compute_ke(particles, n);
     // result is zeroed from init
     d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
@@ -443,7 +447,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 
     out.start_total = out.start_kinetic + out.start_potential;
 
-#if GENERATE_GIF
+    #if GENERATE_GIF
     ge_GIF* gif = NULL;
 
     gif = ge_new_gif(GIF_FILE, (uint16_t)FRAME_WIDTH, (uint16_t)FRAME_HEIGHT, palette, 8, -1, 0);
@@ -453,7 +457,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         render_frame_gif(gif, particles, n, box_size);
         ge_add_frame(gif, FRAME_DELAY);
     }
-#endif
+    #endif
     unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
@@ -464,13 +468,13 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
         checkCudaErrors(cudaGetLastError());
-#if GENERATE_GIF
+    #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
-#endif
+    #endif
     }
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
@@ -492,38 +496,70 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
             printf("step=%6u  KE=%12.6f  PE=%12.6f  E=%12.6f\n", step, out.final_kinetic, out.final_potential, out.final_total);
         }
 
-#if GENERATE_GIF
+    #if GENERATE_GIF
 
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
-#endif
+    #endif
     }
     checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(particles[0].velocity, d_vel, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(particles[0].force, d_force, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
-    /*
-    for (unsigned int step = steps_without_log; step < nsteps; step++) {
-        first_update(particles, n, box_size);
-        out.final_potential = compute_forces(particles, n, box_size);
-        second_update(particles, n);
+#else
+    Vec2* pos = particles[0].position;
+    Vec2* vel = particles[0].velocity;
+    Vec2* force = particles[0].force;
+    out.start_potential = compute_forces(pos, force, n, box_size);
+    out.start_kinetic = compute_ke(vel, n);
+    out.start_total = out.start_kinetic + out.start_potential;
 
-        out.final_kinetic = compute_ke(particles, n);
+    #if GENERATE_GIF
+    ge_GIF* gif = NULL;
+
+    gif = ge_new_gif(GIF_FILE, (uint16_t)FRAME_WIDTH, (uint16_t)FRAME_HEIGHT, palette, 8, -1, 0);
+    if (!gif) {
+        fprintf(stderr, "Warning: failed to create GIF output %s\n", GIF_FILE);
+    } else {
+        render_frame_gif(gif, particles, n, box_size);
+        ge_add_frame(gif, FRAME_DELAY);
+    }
+    #endif
+    unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
+    for (unsigned int step = 0; step < steps_without_log; step++) {
+        // leapfrog
+        first_update(pos, vel, force, n, box_size);
+        compute_forces_no_pe(pos, force, n, box_size);
+        second_update(vel, force, n);
+    #if GENERATE_GIF
+        if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
+            render_frame_gif(gif, particles, n, box_size);
+            ge_add_frame(gif, FRAME_DELAY);
+        }
+    #endif
+    }
+
+    for (unsigned int step = steps_without_log; step < nsteps; step++) {
+        first_update(pos, vel, force, n, box_size);
+        out.final_potential = compute_forces(pos, force, n, box_size);
+        second_update(vel, force, n);
+
+        out.final_kinetic = compute_ke(vel, n);
         out.final_total = out.final_kinetic + out.final_potential;
         if (log_steps) {
             printf("step=%6u  KE=%12.6f  PE=%12.6f  E=%12.6f\n", step, out.final_kinetic, out.final_potential, out.final_total);
         }
 
-#if GENERATE_GIF
+    #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             render_frame_gif(gif, particles, n, box_size);
             ge_add_frame(gif, FRAME_DELAY);
         }
-#endif
+    #endif
     }
-*/
+#endif
 
 #if GENERATE_GIF
     if (gif) {
@@ -537,111 +573,3 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 }
 
 #include "main.h"
-
-/*
-__global__ void whole_step(f32* world, f32* new_world, int tile_w, int tile_h) {
-    extern __shared__ f32 world_tile[];  // tile_h * tile_w
-
-    const int block_y = blockIdx.y * blockDim.y;
-    const int block_x = blockIdx.x * blockDim.x;
-
-    // Load entire tile
-    for (int y = threadIdx.y; y < tile_h; y += blockDim.y) {
-        for (int x = threadIdx.x; x < tile_w; x += blockDim.x) {
-            int gy = (block_y - HALO + y + SIZE) % SIZE;
-            int gx = (block_x - HALO + x + SIZE) % SIZE;
-            world_tile[y * tile_w + x] = world[gy * SIZE + gx];
-        }
-    }
-    __syncthreads();
-
-    int x = block_x + threadIdx.x;
-    int y = block_y + threadIdx.y;
-    if (x >= SIZE || y >= SIZE) return;
-
-    f32 sum = 0;
-    for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-        int ty = HALO + threadIdx.y + d_sparse_k[k].dy;
-        int tx = HALO + threadIdx.x + d_sparse_k[k].dx;
-        sum += d_sparse_k[k].weight * world_tile[ty * tile_w + tx];
-    }
-    int idx = y * SIZE + x;
-    new_world[idx] = __saturatef(world[idx] + DT * growth_lenia(sum));
-}
-    */
-/*
-int main() {
-
-        float time;
-
-        // Allocate memory
-        f32* world = (f32*)calloc(SIZE * SIZE, sizeof(f32));
-        f32* tmp = (f32*)calloc(SIZE * SIZE, sizeof(f32));
-
-        // Place orbiums
-        for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
-            world = place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
-        }
-
-        cudaEvent_t start, stop;
-        checkCudaErrors(cudaEventCreate(&start));
-        checkCudaErrors(cudaEventCreate(&stop));
-        cudaEvent_t start_compute, stop_compute;
-        checkCudaErrors(cudaEventCreate(&start_compute));
-        checkCudaErrors(cudaEventCreate(&stop_compute));
-        init_kernel_const();
-
-        f32 *d_buffer, *d_buffer2;
-        checkCudaErrors(cudaMalloc((void**)&d_buffer, (SIZE) * (SIZE) * sizeof(f32)));
-        checkCudaErrors(cudaMalloc((void**)&d_buffer2, (SIZE) * (SIZE) * sizeof(f32)));
-
-        dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
-        const int tile_w = blockSize.x + KERNEL_SIZE;
-        const int tile_h = blockSize.y + KERNEL_SIZE;
-        const size_t tile_mem_size = tile_w * tile_h * sizeof(f32);
-        // (next) multiple of block size to cover the whole grid
-        dim3 gridSize((SIZE - 1) / blockSize.x + 1, (SIZE - 1) / blockSize.y + 1);
-
-        checkCudaErrors(cudaEventRecord(start));
-        checkCudaErrors(cudaMemcpyAsync(d_buffer, world, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaEventRecord(start_compute));
-
-        // Lenia Simulation
-        for (unsigned int step = 0; step < NUM_STEPS; step++) {
-            // Convolution + Evolution fused
-            whole_step<<<gridSize, blockSize, tile_mem_size>>>(d_buffer, d_buffer2, tile_w, tile_h);
-            checkCudaErrors(cudaGetLastError());
-            // Swap buffers
-            f32* temp = d_buffer;
-            d_buffer = d_buffer2;
-            d_buffer2 = temp;
-
-#ifdef GENERATE_GIF
-            checkCudaErrors(cudaMemcpy(world, d_buffer, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyDeviceToHost));
-            for (usize i = 0; i < SIZE; i++) {
-                for (usize j = 0; j < SIZE; j++) {
-                    gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
-                }
-            }
-            ge_add_frame(gif, 5);
-#endif
-        }
-
-        checkCudaErrors(cudaEventRecord(stop_compute));
-#ifdef GENERATE_GIF
-        ge_close_gif(gif);
-#endif
-        checkCudaErrors(cudaMemcpy(world, d_buffer, (SIZE) * (SIZE) * sizeof(f32), cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaEventRecord(stop));
-        checkCudaErrors(cudaEventSynchronize(stop));
-        checkCudaErrors(cudaEventElapsedTime(&time, start_compute, stop_compute));
-        printf("Time(compute): %f s\n", time / 1000.0);
-        checkCudaErrors(cudaEventElapsedTime(&time, start, stop));
-        printf("Time(full): %f s\n", time / 1000.0);
-        cudaFree(d_buffer);
-        cudaFree(d_buffer2);
-        free(tmp);
-        free(world);
-        return 0;
-        }
-        */

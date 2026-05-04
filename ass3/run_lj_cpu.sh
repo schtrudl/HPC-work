@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --output=timings_cpu_7_less_correct_tiling.log
+#SBATCH --output=timings_cpu_xxx.log
 #SBATCH --time=01:00:00
 
 # Set OpenMP environment variables for thread placement and binding
@@ -19,9 +19,10 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 #    ./run.py cpu -n=5 --srun > timings_cpu_c${i}.log
 #done
 
-rm lj_cpu
-./run.py --srun cpu -n=10
+rm -f lj_cpu lj_cpu2
+module load CUDA
+./run.py --srun cpu2 -n=10
 
 #module load FFmpeg
-#./verify.py --srun cpu --full
+#./verify.py --srun cpu2 --full
 
