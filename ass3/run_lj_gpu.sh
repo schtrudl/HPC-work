@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=3
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_bx.log
-#SBATCH --time=01:00:00
+#SBATCH --output=timings_gpu_12_tiling.log
+#SBATCH --time=00:30:00
 #SBATCH --mem=16G
 #SBATCH --hint=nomultithread
 
@@ -26,6 +26,6 @@ module load CUDA
 #done
 
 #RUN
-#./run.py gpu -n=10 --srun
+./run.py gpu -n=10 --srun
 #module load FFmpeg
 #./verify.py --srun gpu --full

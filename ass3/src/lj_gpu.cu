@@ -120,16 +120,125 @@ Vec2* d_vel;
 Vec2* d_force;
 double* d_result;
 
+// GPU cell list — mirrors the CPU linked-list CellList exactly.
+// Rebuild is done on the CPU: download positions, run the same head/next/pcell
+// logic, then upload to device.  Force kernels traverse head[nc]->next[j] chains.
+#ifndef CELL_SKIN
+    #define CELL_SKIN 0.3
+#endif
+
+static int g_nx, g_ny, g_n_cells;
+static double g_inv_cx, g_inv_cy;
+static unsigned int g_n = 0;
+
+// device cell list arrays (same roles as CellList in lj_cpu.cpp)
+int* d_head;  // [n_cells] linked-list head per cell, -1 = empty
+int* d_next;  // [n]       next particle in same cell, -1 = end
+int* d_pcell;  // [n]       current cell index per particle
+double* d_ref_x;  // [n]       particle x at last rebuild
+double* d_ref_y;  // [n]       particle y at last rebuild
+int* d_rebuild_flag;
+
+// host-side mirrors used during CPU rebuild
+static int* h_head = nullptr;
+static int* h_next = nullptr;
+static int* h_pcell = nullptr;
+static double* h_ref_x = nullptr;
+static double* h_ref_y = nullptr;
+static Vec2* h_pos_tmp = nullptr;
+
+static constexpr double gpu_skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+
+__global__ void d_cl_needs_rebuild_kernel(const Vec2* pos, const double* ref_x, const double* ref_y, unsigned int n, double bs, int* flag) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= (int)n) return;
+    double dx = pos[i].x - ref_x[i];
+    double dy = pos[i].y - ref_y[i];
+    dx -= bs * nearbyint(dx / bs);
+    dy -= bs * nearbyint(dy / bs);
+    if (dx * dx + dy * dy > gpu_skin2) atomicOr(flag, 1);
+}
+
+/// Rebuild cell list on CPU, then upload head/next/pcell/ref to device.
+void gpu_cl_rebuild(unsigned int n) {
+    // Download current positions from device
+    checkCudaErrors(cudaMemcpy(h_pos_tmp, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
+
+    // CPU rebuild — identical logic to cl_rebuild() in lj_cpu.cpp
+    for (int c = 0; c < g_n_cells; c++)
+        h_head[c] = -1;
+    for (int i = (int)n - 1; i >= 0; i--) {
+        int cx = (int)(h_pos_tmp[i].x * g_inv_cx);
+        int cy = (int)(h_pos_tmp[i].y * g_inv_cy);
+        if (cx < 0)
+            cx = 0;
+        else if (cx >= g_nx)
+            cx = g_nx - 1;
+        if (cy < 0)
+            cy = 0;
+        else if (cy >= g_ny)
+            cy = g_ny - 1;
+        int c = cy * g_nx + cx;
+        h_pcell[i] = c;
+        h_next[i] = h_head[c];
+        h_head[c] = i;
+        h_ref_x[i] = h_pos_tmp[i].x;
+        h_ref_y[i] = h_pos_tmp[i].y;
+    }
+
+    // Upload new cell list to device
+    checkCudaErrors(cudaMemcpy(d_head, h_head, g_n_cells * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_next, h_next, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_pcell, h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_ref_x, h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_ref_y, h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
+}
+
+bool gpu_cl_needs_rebuild(unsigned int n, double box_size) {
+    checkCudaErrors(cudaMemset(d_rebuild_flag, 0, sizeof(int)));
+    dim3 blk(256);
+    dim3 grd((n + 255) / 256);
+    d_cl_needs_rebuild_kernel<<<grd, blk>>>(d_pos, d_ref_x, d_ref_y, n, box_size, d_rebuild_flag);
+    checkCudaErrors(cudaGetLastError());
+    int flag = 0;
+    checkCudaErrors(cudaMemcpy(&flag, d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
+    return flag != 0;
+}
+
 void init_cuda(Particle* particles, unsigned int n, double box_size) {
 #if LJ_GPU
-    unsigned int n_ceil_2d = (n + 31) / 32;
-    //checkCudaErrors(cudaMalloc((void**)&d_particles, n * sizeof(Particle)));
     checkCudaErrors(cudaMalloc((void**)&d_pos, n * sizeof(Vec2)));
     checkCudaErrors(cudaMalloc((void**)&d_vel, n * sizeof(Vec2)));
     checkCudaErrors(cudaMalloc((void**)&d_force, n * sizeof(Vec2)));
     checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
+
+    // Set up cell list params (same formula as lj_cpu.cpp)
+    double cell_size = R_CUT + CELL_SKIN;
+    g_nx = (int)(box_size / cell_size);
+    g_ny = (int)(box_size / cell_size);
+    if (g_nx < 3) g_nx = 3;
+    if (g_ny < 3) g_ny = 3;
+    g_n_cells = g_nx * g_ny;
+    g_inv_cx = (double)g_nx / box_size;
+    g_inv_cy = (double)g_ny / box_size;
+
+    checkCudaErrors(cudaMalloc((void**)&d_head, g_n_cells * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&d_next, n * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&d_pcell, n * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&d_ref_x, n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&d_ref_y, n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&d_rebuild_flag, sizeof(int)));
+
+    h_head = (int*)malloc(g_n_cells * sizeof(int));
+    h_next = (int*)malloc(n * sizeof(int));
+    h_pcell = (int*)malloc(n * sizeof(int));
+    h_ref_x = (double*)malloc(n * sizeof(double));
+    h_ref_y = (double*)malloc(n * sizeof(double));
+    h_pos_tmp = (Vec2*)malloc(n * sizeof(Vec2));
+
+    g_n = n;
 #endif
 }
 
@@ -298,44 +407,47 @@ double inline compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_
     return pe;
 }
 
-__global__ void d_compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_size, double* result) {
-    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
-    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
-    double pe = 0.0, fx = 0.0, fy = 0.0;
-    if (i < n && j < n && i != j) {
-        Vec2 pi = pos[i];
-        Vec2 pj = pos[j];
+/// Cell-list based GPU force kernel with PE.
+/// One thread per particle i; traverses head[nc]->next[j] chain per neighbour cell.
+__global__ void d_compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_size, double* result, const int* head, const int* next, const int* pcell, int nx, int ny) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
 
-        // compute distance between particles with periodic boundary conditions
-        double dx = pi.x - pj.x;
-        double dy = pi.y - pj.y;
+    Vec2 pi = pos[i];
+    double fix = 0.0, fiy = 0.0, pe = 0.0;
 
-        dx -= box_size * nearbyint(dx / box_size);
-        dy -= box_size * nearbyint(dy / box_size);
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = ci / nx;
 
-        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r2 = dx * dx + dy * dy;
-        if (r2 < rc2 && r2 != 0.0) {
-            double sr2 = (SIGMA * SIGMA) / r2;
-            double sr6 = sr2 * sr2 * sr2;
-            double sr12 = sr6 * sr6;
-            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-            fx = fij * dx;
-            fy = fij * dy;
-
-            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
-            pe = 0.5 * vij;  // (j,i) thread contributes the other 0.5
+    for (int ndy = -1; ndy <= 1; ndy++) {
+        int ncy = (ciy + ndy + ny) % ny;
+        for (int ndx = -1; ndx <= 1; ndx++) {
+            int ncx = (cix + ndx + nx) % nx;
+            int nc = ncy * nx + ncx;
+            for (int j = head[nc]; j >= 0; j = next[j]) {
+                if (j == (int)i) continue;
+                Vec2 pj = pos[j];
+                double dx = pi.x - pj.x;
+                double dy = pi.y - pj.y;
+                dx -= box_size * nearbyint(dx / box_size);
+                dy -= box_size * nearbyint(dy / box_size);
+                double r2 = dx * dx + dy * dy;
+                if (r2 >= rc2 || r2 == 0.0) continue;
+                double sr2 = (SIGMA * SIGMA) / r2;
+                double sr6 = sr2 * sr2 * sr2;
+                double sr12 = sr6 * sr6;
+                double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                fix += fij * dx;
+                fiy += fij * dy;
+                pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
+            }
         }
     }
 
-    fx = block_reduce(fx);
-    fy = block_reduce(fy);
-    pe = block_reduce(pe);
-    if (threadIdx.x == 0) {
-        atomicAdd(&force[i].x, fx);
-        atomicAdd(&force[i].y, fy);
-        atomicAdd(result, pe);
-    }
+    force[i].x = fix;
+    force[i].y = fiy;
+    atomicAdd(result, pe);
 }
 
 void inline compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double box_size) {
@@ -377,39 +489,44 @@ void inline compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double 
     }
 }
 
-__global__ void d_compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double box_size) {
-    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
-    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
-    double fx = 0.0, fy = 0.0;
-    if (i < n && j < n && i != j) {
-        const Vec2 pi = pos[i];
-        const Vec2 pj = pos[j];
+/// Cell-list based GPU force kernel without PE.
+__global__ void d_compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double box_size, const int* head, const int* next, const int* pcell, int nx, int ny) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
 
-        // compute distance between particles with periodic boundary conditions
-        double dx = pi.x - pj.x;
-        double dy = pi.y - pj.y;
+    Vec2 pi = pos[i];
+    double fix = 0.0, fiy = 0.0;
 
-        dx -= box_size * nearbyint(dx / box_size);
-        dy -= box_size * nearbyint(dy / box_size);
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = ci / nx;
 
-        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-        double r2 = dx * dx + dy * dy;
-        if (r2 < rc2 && r2 != 0.0) {
-            double sr2 = (SIGMA * SIGMA) / r2;
-            double sr6 = sr2 * sr2 * sr2;
-            double sr12 = sr6 * sr6;
-            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-            fx = fij * dx;
-            fy = fij * dy;
+    for (int ndy = -1; ndy <= 1; ndy++) {
+        int ncy = (ciy + ndy + ny) % ny;
+        for (int ndx = -1; ndx <= 1; ndx++) {
+            int ncx = (cix + ndx + nx) % nx;
+            int nc = ncy * nx + ncx;
+            for (int j = head[nc]; j >= 0; j = next[j]) {
+                if (j == (int)i) continue;
+                Vec2 pj = pos[j];
+                double dx = pi.x - pj.x;
+                double dy = pi.y - pj.y;
+                dx -= box_size * nearbyint(dx / box_size);
+                dy -= box_size * nearbyint(dy / box_size);
+                double r2 = dx * dx + dy * dy;
+                if (r2 >= rc2 || r2 == 0.0) continue;
+                double sr2 = (SIGMA * SIGMA) / r2;
+                double sr6 = sr2 * sr2 * sr2;
+                double sr12 = sr6 * sr6;
+                double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                fix += fij * dx;
+                fiy += fij * dy;
+            }
         }
     }
 
-    fx = block_reduce(fx);
-    fy = block_reduce(fy);
-    if (threadIdx.x == 0) {
-        atomicAdd(&force[i].x, fx);
-        atomicAdd(&force[i].y, fy);
-    }
+    force[i].x = fix;
+    force[i].y = fiy;
 }
 
 void inline second_update(Vec2* vel, Vec2* force, unsigned int n) {
@@ -439,15 +556,15 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 block_size_n(BLOCK_SIZE);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
-    // 2D grid for n**2
-    dim3 block_size_2d(BLOCK_SIZE, 1);
-    dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
-
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_vel, particles[0].velocity, n * sizeof(Vec2), cudaMemcpyHostToDevice));
+
+    // Build initial cell list
+    gpu_cl_rebuild(n);
+
     // forces are zeroed on initialize_particles
     // result is zeroed from init
-    d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size, d_result);
+    d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result, d_head, d_next, d_pcell, g_nx, g_ny);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -474,8 +591,11 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         // leapfrog
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
+        if (gpu_cl_needs_rebuild(n, box_size)) {
+            gpu_cl_rebuild(n);
+        }
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size);
+        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_head, d_next, d_pcell, g_nx, g_ny);
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
         checkCudaErrors(cudaGetLastError());
@@ -490,9 +610,12 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
+        if (gpu_cl_needs_rebuild(n, box_size)) {
+            gpu_cl_rebuild(n);
+        }
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size, d_result);
+        d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result, d_head, d_next, d_pcell, g_nx, g_ny);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
