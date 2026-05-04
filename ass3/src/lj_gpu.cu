@@ -307,15 +307,13 @@ __global__ void d_compute_forces(Particle* particles, unsigned int n, double box
         }
     }
 
-    // With blockDim=(32,32), each row (fixed threadIdx.y) is one warp for particle i.
-    fx = warp_reduce(fx);
-    fy = warp_reduce(fy);
-    pe = warp_reduce(pe);
+    fx = block_reduce(fx);
+    fy = block_reduce(fy);
+    pe = block_reduce(pe);
     if (threadIdx.x == 0) {
         atomicAdd(&particles[i].fx, fx);
         atomicAdd(&particles[i].fy, fy);
         atomicAdd(result, pe);
-        // pe should be reduced per block
     }
 }
 
@@ -380,9 +378,8 @@ __global__ void d_compute_forces_no_pe(Particle* particles, unsigned int n, doub
         }
     }
 
-    // Row-wise warp reduction: one warp accumulates one particle i.
-    fx = warp_reduce(fx);
-    fy = warp_reduce(fy);
+    fx = block_reduce(fx);
+    fy = block_reduce(fy);
     if (threadIdx.x == 0) {
         atomicAdd(&particles[i].fx, fx);
         atomicAdd(&particles[i].fy, fy);
@@ -429,7 +426,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
     // 2D grid: each thread handles one (i,j) pair without any symmetry optimization
-    dim3 block_size_2d(32, 32);
+    dim3 block_size_2d(256, 1);
     dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
 
     // TODO(perf): if we measure this we can do upload and measure KE
