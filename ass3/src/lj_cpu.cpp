@@ -190,21 +190,12 @@ static CellList* cl_create(unsigned int n, double box_size) {
     cl->pcell = (int*)malloc(n * sizeof(int));
     cl->ref_x = (double*)malloc(n * sizeof(double));
     cl->ref_y = (double*)malloc(n * sizeof(double));
-    if (!cl->head || !cl->next || !cl->pcell || !cl->ref_x || !cl->ref_y) {
-        free(cl->head);
-        free(cl->next);
-        free(cl->pcell);
-        free(cl->ref_x);
-        free(cl->ref_y);
-        free(cl);
-        return NULL;
-    }
     return cl;
 }
 
 /* Reset and refill in-place — O(n), no malloc.
    Also snapshots current positions as new rebuild reference. */
-static void cl_build(CellList* cl, const Particle* particles, unsigned int n) {
+static void cl_rebuild(CellList* cl, const Particle* particles, unsigned int n) {
     for (int c = 0; c < cl->n_cells; c++)
         cl->head[c] = -1;
     /* Iterate backwards so the linked list preserves ascending particle order. */
@@ -234,26 +225,12 @@ static int cl_needs_rebuild(const CellList* cl, const Particle* particles, unsig
     return 0;
 }
 
-/* Rebuild in-place (no malloc). */
-static void cl_update(CellList* cl, const Particle* particles, unsigned int n) {
-    cl_build(cl, particles, n);
-}
-
-static void cl_free(CellList* cl) {
-    free(cl->head);
-    free(cl->next);
-    free(cl->pcell);
-    free(cl->ref_x);
-    free(cl->ref_y);
-    free(cl);
-}
-
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
 const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 
 // ---- Tiled force computation using the cell list ----
 
-double inline compute_forces_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+double inline compute_forces(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
     const double rc2 = R_CUT * R_CUT;
     double pe = 0.0;
     OMP(parallel for reduction(+:pe))
@@ -293,7 +270,7 @@ double inline compute_forces_tiled(Particle* particles, unsigned int n, double b
     return pe;
 }
 
-void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
+void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
     const double rc2 = R_CUT * R_CUT;
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
@@ -330,86 +307,6 @@ void inline compute_forces_no_pe_tiled(Particle* particles, unsigned int n, doub
     }
 }
 
-// ---- Original naive O(n²) force computation (kept for reference) ----
-
-double inline compute_forces(Particle* particles, unsigned int n, double box_size) {
-    double pe = 0.0;
-    OMP(parallel for reduction(+:pe))
-    for (unsigned int i = 0; i < n; ++i) {
-        Particle* pi = &particles[i];
-        pi->fx = 0.0;
-        pi->fy = 0.0;
-        for (unsigned int j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
-            Particle* pj = &particles[j];
-
-            // compute distance between particles with periodic boundary conditions
-            double dx = pi->x - pj->x;
-            double dy = pi->y - pj->y;
-
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
-
-            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) {
-                continue;
-            }
-            double sr = SIGMA / r;
-
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            double fx = fij * dx / r;
-            double fy = fij * dy / r;
-
-            pi->fx += fx;
-            pi->fy += fy;
-
-            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
-            pe += 0.5 * vij;
-        }
-    }
-
-    return pe;
-}
-
-void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size) {
-    OMP(parallel for)
-    for (unsigned int i = 0; i < n; ++i) {
-        Particle* pi = &particles[i];
-        pi->fx = 0.0;
-        pi->fy = 0.0;
-        for (unsigned int j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
-            Particle* pj = &particles[j];
-
-            // compute distance between particles with periodic boundary conditions
-            double dx = pi->x - pj->x;
-            double dy = pi->y - pj->y;
-
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
-
-            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy);
-            if (r >= R_CUT || r == 0.0) {
-                continue;
-            }
-            double sr = SIGMA / r;
-
-            double fij = 24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            double fx = fij * dx / r;
-            double fy = fij * dy / r;
-
-            pi->fx += fx;
-            pi->fy += fy;
-        }
-    }
-}
-
 void inline second_update(Particle* particles, unsigned int n) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
@@ -422,15 +319,12 @@ void inline second_update(Particle* particles, unsigned int n) {
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
     SimulationResult out;
 
-    /* Build the cell list once, outside the main loop. */
+    // XXX: we could move this to init but that would feel like cheating
     CellList* cl = cl_create(n, box_size);
-    if (!cl) {
-        fprintf(stderr, "Failed to allocate cell list.\n");
-        exit(1);
-    }
-    cl_build(cl, particles, n);
+    cl_rebuild(cl, particles, n);
 
-    out.start_potential = compute_forces_tiled(particles, n, box_size, cl);
+    // XXX: we could move this to init too
+    out.start_potential = compute_forces(particles, n, box_size, cl);
     out.start_kinetic = compute_ke(particles, n);
     out.start_total = out.start_kinetic + out.start_potential;
 
@@ -451,9 +345,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         first_update(particles, n, box_size);
         // Rebuild cell list only when a particle has moved > CELL_SKIN/2
         if (cl_needs_rebuild(cl, particles, n)) {
-            cl_update(cl, particles, n);
+            cl_rebuild(cl, particles, n);
         }
-        compute_forces_no_pe_tiled(particles, n, box_size, cl);
+        compute_forces_no_pe(particles, n, box_size, cl);
         second_update(particles, n);
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
@@ -466,9 +360,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         first_update(particles, n, box_size);
         if (cl_needs_rebuild(cl, particles, n)) {
-            cl_update(cl, particles, n);
+            cl_rebuild(cl, particles, n);
         }
-        out.final_potential = compute_forces_tiled(particles, n, box_size, cl);
+        out.final_potential = compute_forces(particles, n, box_size, cl);
         second_update(particles, n);
 
         out.final_kinetic = compute_ke(particles, n);
@@ -491,10 +385,10 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     }
 #endif
 
-    cl_free(cl);
     out.n = n;
     out.particles = particles;
     return out;
+    // yes we leak, but we do not care
 }
 
 #include "main.h"
