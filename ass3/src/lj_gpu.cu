@@ -136,6 +136,9 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     Vec2* pos = (Vec2*)calloc(n, sizeof(Vec2));
     Vec2* vel = (Vec2*)calloc(n, sizeof(Vec2));
     Vec2* force = (Vec2*)calloc(n, sizeof(Vec2));
+    particles[0].position = pos;
+    particles[0].velocity = vel;
+    particles[0].force = force;
     unsigned int n_side = (unsigned int)ceil(sqrt((double)n));
     double placement_size = placement_fraction * box_size;
     double offset = 0.5 * (box_size - placement_size);
@@ -181,10 +184,6 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
         vel[k].x *= scale;
         vel[k].y *= scale;
     }
-
-    particles[0].position = pos;
-    particles[0].velocity = vel;
-    particles[0].force = force;
 
     init_cuda(particles, n, box_size);
     return 1;

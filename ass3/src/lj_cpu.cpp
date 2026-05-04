@@ -12,7 +12,7 @@
 // #include <cuda.h>
 
 #include "gifenc.h"
-#include "lennard-jones.h"
+#include "vec2-lennard-jones.h"
 
 // plotting functions
 #if GENERATE_GIF
@@ -28,10 +28,11 @@ void set_pixel(uint8_t* img, int w, int h, int x, int y, uint8_t index) {
 
 void render_frame_gif(ge_GIF* gif, const Particle* particles, unsigned int n, double box_size) {
     memset(gif->frame, 0, FRAME_WIDTH * FRAME_HEIGHT);
+    Vec2* pos = particles[0].position;
 
     for (unsigned int i = 0; i < n; ++i) {
-        int px = (int)(particles[i].x / box_size * (double)(FRAME_WIDTH - 1));
-        int py = (int)(particles[i].y / box_size * (double)(FRAME_HEIGHT - 1));
+        int px = (int)(pos[i].x / box_size * (double)(FRAME_WIDTH - 1));
+        int py = (int)(pos[i].y / box_size * (double)(FRAME_HEIGHT - 1));
         py = (FRAME_HEIGHT - 1) - py;
 
         for (int dy = -FRAME_PARTICLE_RADIUS; dy <= FRAME_PARTICLE_RADIUS; ++dy) {
@@ -49,18 +50,24 @@ double random_double(void) {
 }
 
 // compute kinetic energy of the system
-double inline compute_ke(const Particle* particles, unsigned int n) {
+double inline compute_ke(const Vec2* const velocity, unsigned int n) {
     double ke = 0.0;
     OMP(parallel for reduction(+:ke))
     for (unsigned int i = 0; i < n; ++i) {
-        const Particle* p = &particles[i];
-        ke += 0.5 * (p->vx * p->vx + p->vy * p->vy);
+        const Vec2 v = velocity[i];
+        ke += 0.5 * (v.x * v.x + v.y * v.y);
     }
     return ke;
 }
 
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature) {
     srand(seed);
+    Vec2* pos = (Vec2*)calloc(n, sizeof(Vec2));
+    Vec2* vel = (Vec2*)calloc(n, sizeof(Vec2));
+    Vec2* force = (Vec2*)calloc(n, sizeof(Vec2));
+    particles[0].position = pos;
+    particles[0].velocity = vel;
+    particles[0].force = force;
     unsigned int n_side = (unsigned int)ceil(sqrt((double)n));
     double placement_size = placement_fraction * box_size;
     double offset = 0.5 * (box_size - placement_size);
@@ -74,14 +81,14 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
         double x0 = offset + (0.5 + (double)(k % n_side)) * delta;
         double y0 = offset + (0.5 + (double)(k / n_side)) * delta;
 
-        particles[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
-        particles[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        pos[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        pos[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
 
-        particles[k].vx = 2.0 * random_double() - 1.0;
-        particles[k].vy = 2.0 * random_double() - 1.0;
+        vel[k].x = 2.0 * random_double() - 1.0;
+        vel[k].y = 2.0 * random_double() - 1.0;
 
-        mean_vx += particles[k].vx;
-        mean_vy += particles[k].vy;
+        mean_vx += vel[k].x;
+        mean_vy += vel[k].y;
     }
 
     mean_vx /= (double)n;
@@ -89,9 +96,9 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     double ke = 0.0;
     // subtract mean velocity to ensure zero net momentum and compute initial kinetic energy
     for (unsigned int k = 0; k < n; k++) {
-        particles[k].vx -= mean_vx;
-        particles[k].vy -= mean_vy;
-        ke += 0.5 * (particles[k].vx * particles[k].vx + particles[k].vy * particles[k].vy);
+        vel[k].x -= mean_vx;
+        vel[k].y -= mean_vy;
+        ke += 0.5 * (vel[k].x * vel[k].x + vel[k].y * vel[k].y);
     }
 
     double current_temperature = ke / (double)n;
@@ -102,24 +109,26 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     // scale velocities to match the desired initial temperature of the system
     double scale = sqrt(temperature / current_temperature);
     for (unsigned int k = 0; k < n; k++) {
-        particles[k].vx *= scale;
-        particles[k].vy *= scale;
+        vel[k].x *= scale;
+        vel[k].y *= scale;
     }
 
     return 1;
 }
 
-void inline first_update(Particle* particles, unsigned int n, double box_size) {
+void inline first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n, double box_size) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        Particle* p = &particles[i];
-        p->vx += 0.5 * DT * p->fx;
-        p->vy += 0.5 * DT * p->fy;
+        Vec2* p_pos = &pos[i];
+        Vec2* p_vel = &vel[i];
+        const Vec2 p_force = force[i];
+        p_vel->x += 0.5 * DT * p_force.x;
+        p_vel->y += 0.5 * DT * p_force.y;
 
         // fused wrap_positions
         // apply periodic boundary conditions to ensure particles stay within the simulation box
-        double wx = fmod(p->x + DT * p->vx, box_size);
-        double wy = fmod(p->y + DT * p->vy, box_size);
+        double wx = fmod(p_pos->x + DT * p_vel->x, box_size);
+        double wy = fmod(p_pos->y + DT * p_vel->y, box_size);
 
         if (wx < 0.0) {
             wx += box_size;
@@ -128,8 +137,8 @@ void inline first_update(Particle* particles, unsigned int n, double box_size) {
             wy += box_size;
         }
 
-        p->x = wx;
-        p->y = wy;
+        p_pos->x = wx;
+        p_pos->y = wy;
     }
 }
 
@@ -142,11 +151,11 @@ void inline first_update(Particle* particles, unsigned int n, double box_size) {
 
 #define CELL_SKIN 0.3 /* extra buffer beyond R_CUT; tune for performance */
 
+constexpr double skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+
 typedef struct {
     int nx, ny, n_cells;
     double inv_cx, inv_cy; /* 1/cell_size for fast index computation */
-    double box_size; /* needed for minimum-image displacement check */
-    double skin2; /* (CELL_SKIN/2)^2 — rebuild trigger threshold  */
     int* head; /* [n_cells] linked-list head per cell, -1 = empty */
     int* next; /* [n]       next particle in same cell, -1 = end  */
     int* pcell; /* [n]       current cell index per particle        */
@@ -183,8 +192,6 @@ static CellList* cl_create(unsigned int n, double box_size) {
     cl->n_cells = cl->nx * cl->ny;
     cl->inv_cx = (double)cl->nx / box_size;
     cl->inv_cy = (double)cl->ny / box_size;
-    cl->box_size = box_size;
-    cl->skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
     cl->head = (int*)malloc(cl->n_cells * sizeof(int));
     cl->next = (int*)malloc(n * sizeof(int));
     cl->pcell = (int*)malloc(n * sizeof(int));
@@ -195,28 +202,26 @@ static CellList* cl_create(unsigned int n, double box_size) {
 
 /* Reset and refill in-place — O(n), no malloc.
    Also snapshots current positions as new rebuild reference. */
-static void cl_rebuild(CellList* cl, const Particle* particles, unsigned int n) {
+static void cl_rebuild(CellList* cl, const Vec2* const pos, unsigned int n) {
     for (int c = 0; c < cl->n_cells; c++)
         cl->head[c] = -1;
     /* Iterate backwards so the linked list preserves ascending particle order. */
     for (int i = (int)n - 1; i >= 0; i--) {
-        int c = cl_cell(cl, particles[i].x, particles[i].y);
+        int c = cl_cell(cl, pos[i].x, pos[i].y);
         cl->pcell[i] = c;
         cl->next[i] = cl->head[c];
         cl->head[c] = i;
-        cl->ref_x[i] = particles[i].x;
-        cl->ref_y[i] = particles[i].y;
+        cl->ref_x[i] = pos[i].x;
+        cl->ref_y[i] = pos[i].y;
     }
 }
 
 /* Returns 1 if any particle has moved more than CELL_SKIN/2 from its
    reference position (using minimum-image convention to handle wraps). */
-static int cl_needs_rebuild(const CellList* cl, const Particle* particles, unsigned int n) {
-    const double bs = cl->box_size;
-    const double skin2 = cl->skin2;
+static int cl_needs_rebuild(const CellList* cl, const Vec2* const pos, const unsigned int n, const double bs) {
     for (unsigned int i = 0; i < n; i++) {
-        double dx = particles[i].x - cl->ref_x[i];
-        double dy = particles[i].y - cl->ref_y[i];
+        double dx = pos[i].x - cl->ref_x[i];
+        double dy = pos[i].y - cl->ref_y[i];
         /* minimum-image: avoids false positives when a particle wraps */
         dx -= bs * nearbyint(dx / bs);
         dy -= bs * nearbyint(dy / bs);
@@ -226,16 +231,19 @@ static int cl_needs_rebuild(const CellList* cl, const Particle* particles, unsig
 }
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
-const double v_shift = 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+constexpr double sigma_over_rcut = SIGMA / R_CUT;
+constexpr double sigma_over_rcut_2 = sigma_over_rcut * sigma_over_rcut;
+constexpr double sigma_over_rcut_6 = sigma_over_rcut_2 * sigma_over_rcut_2 * sigma_over_rcut_2;
+constexpr double sigma_over_rcut_12 = sigma_over_rcut_6 * sigma_over_rcut_6;
+constexpr double v_shift = 4.0 * EPSILON * (sigma_over_rcut_12 - sigma_over_rcut_6);
 
-// ---- Tiled force computation using the cell list ----
+constexpr double rc2 = R_CUT * R_CUT;
 
-double inline compute_forces(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
-    const double rc2 = R_CUT * R_CUT;
+double inline compute_forces(const Vec2* const pos, Vec2* force, unsigned int n, double box_size, const CellList* cl) {
     double pe = 0.0;
     OMP(parallel for reduction(+:pe))
     for (unsigned int i = 0; i < n; ++i) {
-        Particle* pi = &particles[i];
+        const Vec2 pi = pos[i];
         double fix = 0.0, fiy = 0.0;
         int ci = cl->pcell[i];
         int cix = ci % cl->nx;
@@ -247,9 +255,9 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
                 int nc = ncy * cl->nx + ncx;
                 for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
                     if (j == (int)i) continue;
-                    const Particle* pj = &particles[j];
-                    double dx = pi->x - pj->x;
-                    double dy = pi->y - pj->y;
+                    const Vec2 pj = pos[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
                     dx -= box_size * nearbyint(dx / box_size);
                     dy -= box_size * nearbyint(dy / box_size);
                     double r2 = dx * dx + dy * dy;
@@ -264,17 +272,16 @@ double inline compute_forces(Particle* particles, unsigned int n, double box_siz
                 }
             }
         }
-        pi->fx = fix;
-        pi->fy = fiy;
+        force[i].x = fix;
+        force[i].y = fiy;
     }
     return pe;
 }
 
-void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box_size, const CellList* cl) {
-    const double rc2 = R_CUT * R_CUT;
+void inline compute_forces_no_pe(const Vec2* const pos, Vec2* force, unsigned int n, double box_size, const CellList* cl) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        Particle* pi = &particles[i];
+        const Vec2 pi = pos[i];
         double fix = 0.0, fiy = 0.0;
         int ci = cl->pcell[i];
         int cix = ci % cl->nx;
@@ -286,9 +293,9 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
                 int nc = ncy * cl->nx + ncx;
                 for (int j = cl->head[nc]; j >= 0; j = cl->next[j]) {
                     if (j == (int)i) continue;
-                    const Particle* pj = &particles[j];
-                    double dx = pi->x - pj->x;
-                    double dy = pi->y - pj->y;
+                    const Vec2 pj = pos[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
                     dx -= box_size * nearbyint(dx / box_size);
                     dy -= box_size * nearbyint(dy / box_size);
                     double r2 = dx * dx + dy * dy;
@@ -302,30 +309,34 @@ void inline compute_forces_no_pe(Particle* particles, unsigned int n, double box
                 }
             }
         }
-        pi->fx = fix;
-        pi->fy = fiy;
+        force[i].x = fix;
+        force[i].y = fiy;
     }
 }
 
-void inline second_update(Particle* particles, unsigned int n) {
+void inline second_update(Vec2* vel, const Vec2* const force, unsigned int n) {
     OMP(parallel for)
     for (unsigned int i = 0; i < n; ++i) {
-        Particle* p = &particles[i];
-        p->vx += 0.5 * DT * p->fx;
-        p->vy += 0.5 * DT * p->fy;
+        Vec2* p_vel = &vel[i];
+        const Vec2 p_force = force[i];
+        p_vel->x += 0.5 * DT * p_force.x;
+        p_vel->y += 0.5 * DT * p_force.y;
     }
 }
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
     SimulationResult out;
+    Vec2* pos = particles[0].position;
+    Vec2* vel = particles[0].velocity;
+    Vec2* force = particles[0].force;
 
     // XXX: we could move this to init but that would feel like cheating
     CellList* cl = cl_create(n, box_size);
-    cl_rebuild(cl, particles, n);
+    cl_rebuild(cl, pos, n);
 
     // XXX: we could move this to init too
-    out.start_potential = compute_forces(particles, n, box_size, cl);
-    out.start_kinetic = compute_ke(particles, n);
+    out.start_potential = compute_forces(pos, force, n, box_size, cl);
+    out.start_kinetic = compute_ke(vel, n);
     out.start_total = out.start_kinetic + out.start_potential;
 
 #if GENERATE_GIF
@@ -342,13 +353,13 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
-        first_update(particles, n, box_size);
+        first_update(pos, vel, force, n, box_size);
         // Rebuild cell list only when a particle has moved > CELL_SKIN/2
-        if (cl_needs_rebuild(cl, particles, n)) {
-            cl_rebuild(cl, particles, n);
+        if (cl_needs_rebuild(cl, pos, n, box_size)) {
+            cl_rebuild(cl, pos, n);
         }
-        compute_forces_no_pe(particles, n, box_size, cl);
-        second_update(particles, n);
+        compute_forces_no_pe(pos, force, n, box_size, cl);
+        second_update(vel, force, n);
 #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             render_frame_gif(gif, particles, n, box_size);
@@ -358,14 +369,14 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     }
 
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
-        first_update(particles, n, box_size);
-        if (cl_needs_rebuild(cl, particles, n)) {
-            cl_rebuild(cl, particles, n);
+        first_update(pos, vel, force, n, box_size);
+        if (cl_needs_rebuild(cl, pos, n, box_size)) {
+            cl_rebuild(cl, pos, n);
         }
-        out.final_potential = compute_forces(particles, n, box_size, cl);
-        second_update(particles, n);
+        out.final_potential = compute_forces(pos, force, n, box_size, cl);
+        second_update(vel, force, n);
 
-        out.final_kinetic = compute_ke(particles, n);
+        out.final_kinetic = compute_ke(vel, n);
         out.final_total = out.final_kinetic + out.final_potential;
         if (log_steps) {
             printf("step=%6u  KE=%12.6f  PE=%12.6f  E=%12.6f\n", step, out.final_kinetic, out.final_potential, out.final_total);
