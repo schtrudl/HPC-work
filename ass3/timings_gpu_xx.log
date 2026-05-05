@@ -1,0 +1,38 @@
+nvcc -DGENERATE_GIF -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp,-march=native ./src/lj_gpu.cu -o lj_gpu -lm
+--- blessed/2000_5000/result.txt
++++ out/2000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  2007.2494 | delta: +1007.2494
+-Final PE: -3217.0821 | delta: -1007.3599
+-Final E:  -1209.8328 | delta: -0.1105
++Final KE:  2006.7946 | delta: +1006.7946
++Final PE: -3216.6191 | delta: -1006.8968
++Final E:  -1209.8244 | delta: -0.1022
+--- blessed/8000_5000/result.txt
++++ out/8000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  9682.3070 | delta: +5682.3070
+-Final PE: -14707.0866 | delta: -5682.6034
+-Final E:  -5024.7795 | delta: -0.2964
++Final KE:  9683.4802 | delta: +5683.4802
++Final PE: -14708.2750 | delta: -5683.7918
++Final E:  -5024.7948 | delta: -0.3116
+100_100 is OK
+--- blessed/1000_5000/result.txt
++++ out/1000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:   741.8011 | delta: +241.8011
+-Final PE: -1616.4921 | delta: -241.7984
+-Final E:   -874.6910 | delta: +0.0028
++Final KE:   741.8265 | delta: +241.8265
++Final PE: -1616.5173 | delta: -241.8235
++Final E:   -874.6908 | delta: +0.0030
+--- blessed/4000_5000/result.txt
++++ out/4000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  5094.7852 | delta: +3094.7852
+-Final PE: -6635.4438 | delta: -3095.0374
+-Final E:  -1540.6586 | delta: -0.2522
++Final KE:  5099.9528 | delta: +3099.9528
++Final PE: -6640.6255 | delta: -3100.2191
++Final E:  -1540.6726 | delta: -0.2663

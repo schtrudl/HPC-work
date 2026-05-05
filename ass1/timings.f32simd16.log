@@ -1,0 +1,14 @@
+test_images/valve.png:
+  full: 0.0809 s ± 0.0007 s
+test_images/tower.png:
+  full: 0.2331 s ± 0.0035 s
+test_images/720x480.png:
+  full: 0.0933 s ± 0.0002 s
+test_images/1024x768.png:
+  full: 0.1672 s ± 0.0005 s
+test_images/1920x1200.png:
+  full: 0.3112 s ± 0.0005 s
+test_images/3840x2160.png:
+  full: 1.0725 s ± 0.0024 s
+test_images/7680x4320.png:
+  full: 3.6130 s ± 0.0027 s

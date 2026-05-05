@@ -35,6 +35,11 @@ parser.add_argument(
     help="number of standard deviations for significance (default: 7.0)",
 )
 parser.add_argument(
+    "--speedup",
+    action="store_true",
+    help="also compute and display speedup (baseline_time / current_time)",
+)
+parser.add_argument(
     "--bless",
     action="store_true",
     help="bless current timings as new baseline (overwrites baseline file)",
@@ -74,7 +79,11 @@ print("Comparison of timings baseline ± diff = new (rel diff):")
 for image in baseline_timings:
     print(f"{image}:")
     for label in baseline_timings[image]:
+        if image not in baseline_timings or label not in baseline_timings[image]:
+            continue
         baseline_time, baseline_sigma = baseline_timings[image][label]
+        if image not in current_timings or label not in current_timings[image]:
+            continue
         current_time, current_sigma = current_timings[image][label]
         diff = current_time - baseline_time
         # Error propagation: σ_diff = sqrt(σ_baseline² + σ_current²)
@@ -97,6 +106,11 @@ for image in baseline_timings:
 
         print(
             f"  {label:>20}: {baseline_time:7.4f} s {color(diff, f'{diff:+.4f}')} s = {current_time:7.4f} s ({color(diff_percent, f'{diff_percent:+6.2f}')}%) {sig_marker if significant else ''}"
+            + (
+                f" [Speedup: {baseline_time / current_time:.2f}x]"
+                if args.speedup
+                else ""
+            )
         )
 
 if args.bless:

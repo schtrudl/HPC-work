@@ -1,0 +1,28 @@
+1000:
+  first_update: 0.1937 s ± 0.0140 s
+  force: 0.0180 s ± 0.0029 s
+  pe: 0.0172 s ± 0.0026 s
+  second_update: 0.0180 s ± 0.0026 s
+  ke: 0.0163 s ± 0.0022 s
+  full: 0.2638 s ± 0.0169 s
+2000:
+  first_update: 0.8005 s ± 0.0019 s
+  force: 0.0149 s ± 0.0001 s
+  pe: 0.0159 s ± 0.0001 s
+  second_update: 0.0151 s ± 0.0001 s
+  ke: 0.0151 s ± 0.0001 s
+  full: 0.8942 s ± 0.0019 s
+4000:
+  first_update: 3.1888 s ± 0.0033 s
+  force: 0.0150 s ± 0.0002 s
+  pe: 0.0160 s ± 0.0001 s
+  second_update: 0.0150 s ± 0.0001 s
+  ke: 0.0152 s ± 0.0001 s
+  full: 3.4127 s ± 0.0035 s
+8000:
+  first_update: 12.8087 s ± 0.0150 s
+  force: 0.0155 s ± 0.0002 s
+  pe: 0.0159 s ± 0.0001 s
+  second_update: 0.0150 s ± 0.0002 s
+  ke: 0.0152 s ± 0.0000 s
+  full: 13.5566 s ± 0.0155 s

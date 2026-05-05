@@ -10,8 +10,14 @@
 
 // reporting of timings of substeps (useful for fine-tuning)
 // beware that full timings are in this mode not representative
-#define REPORT_SUB_TIMES 1
-#ifdef REPORT_SUB_TIMES
+#define REPORT_SUB_TIMES 0
+// koliko seamov bomo obdelali na enkrat
+//
+// po definiciji problema naj bi bila kle 1
+#define SEAMS_PER_ROUND 1
+#define PARALLEL 1
+
+#if REPORT_SUB_TIMES
     #define report_time_into_var(var, name, code) \
         do { \
             double start = omp_get_wtime(); \
@@ -39,23 +45,29 @@
 // Use 0 to retain the original number of color channels
 #define COLOR_CHANNELS 3
 #define MAX_FILENAME 255
-#define SEAMS 128
-// koliko seamov bomo obdelali na enkrat
-//
-// po definiciji problema naj bi bila kle 1
-#define SEAMS_PER_ROUND 2
-// this is to prevent formating of the OMP pragmas
-#define OMP(x) DO_PRAGMA(omp x)
+#if PARALLEL
+    // this is to prevent formating of the OMP pragmas
+    #define OMP(x) DO_PRAGMA(omp x)
+#else
+    #define OMP(x)
+#endif
+
 #define DO_PRAGMA(x) _Pragma(#x)
 
 // typed malloc
-#define box(n, type) (type*)malloc((n) * sizeof(type))
+#define box(n, type) (type*)aligned_alloc(sizeof(type), (n) * sizeof(type))
 // type aliases for better readability
 #define usize size_t
 #define u8 uint8_t
 #define u32 uint32_t
+#define i32 int32_t
 #define f64 double
 #define f32 float
+
+// some floating typing alias
+#define fxx f32
+// buffer type alias
+#define txx u32
 
 // this struct makes it easier to work with the image data
 // as c indexing automatically takes into account sizeof(Pixel)
@@ -65,95 +77,125 @@ typedef struct {
     u8 b;
 } Pixel;
 
-inline usize min(usize a, usize b) {
+inline usize min(const usize a, const usize b) {
     return (a < b) ? a : b;
 }
 
-inline usize min_3(usize a, usize b, usize c) {
+inline txx min_txx(const txx a, const txx b) {
+    return (a < b) ? a : b;
+}
+
+inline txx min_txx_3(const txx a, const txx b, const txx c) {
     return (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
 }
 
-inline usize min_col(usize a, usize b, u32 a_val, u32 b_val) {
+inline usize min_col(const usize a, const usize b, const txx a_val, const txx b_val) {
     return (a_val < b_val) ? a : b;
 }
 
-inline usize min_col_3(usize a, usize b, usize c, u32 a_val, u32 b_val, u32 c_val) {
+inline usize min_col_3(const usize a, const usize b, const usize c, const txx a_val, const txx b_val, const txx c_val) {
     return (a_val < b_val) ? ((a_val < c_val) ? a : c) : ((b_val < c_val) ? b : c);
 }
 
-void copy_image(Pixel* image_out, const Pixel* image_in, const usize size) {
-    OMP(parallel)  //
-    {
-        // Print thread, CPU, and NUMA node information
-        OMP(single)  //
-        printf("Using %d threads.\n", omp_get_num_threads());
-
-        int tid = omp_get_thread_num();
-        int cpu = sched_getcpu();
-        int node = numa_node_of_cpu(cpu);
-        OMP(critical)  //
-        printf("Thread %d -> CPU %d NUMA %d\n", tid, cpu, node);
-
-        // Copy the image data in parallel
-        OMP(for)  //
-        for (usize i = 0; i < size; ++i) {
-            image_out[i] = image_in[i];
-        }
-    }
-}
-
-void compute_energy(const Pixel* image, const usize width, const usize stride, const usize height, u8* energy) {
-    // TODO(perf): we can avoid * by computing idx as part of the loop
+void compute_energy(const Pixel* const image, const usize width, const usize stride, const usize height, txx* const energy) {
     OMP(parallel for)  //
     for (usize row = 0; row < height; row++) {
-        usize row_minus_1 = (row == 0) ? 0 : row - 1;
-        usize row_plus_1 = (row == height - 1) ? height - 1 : row + 1;
-        for (usize col = 0; col < width; col++) {
-            usize col_minus_1 = (col == 0) ? 0 : col - 1;
-            usize col_plus_1 = (col == width - 1) ? width - 1 : col + 1;
-            //Pixel p = image[row * stride + col];
-            /*
-If the input image pixel at row i and column j is denoted by s ( i , j ) , then the energy E ( i , j ) is computed using Sobel as:
+        const usize row_minus_1 = (row == 0) ? 0 : row - 1;
+        const usize row_plus_1 = (row == height - 1) ? row : row + 1;
+        // precompute offsets
+        const Pixel* const row_top = image + row_minus_1 * stride;
+        const Pixel* const row_mid = image + row * stride;
+        const Pixel* const row_bot = image + row_plus_1 * stride;
+        txx* const energy_row = energy + row * width;
 
-G x = − s ( i − 1 , j − 1 ) − 2 s ( i , j − 1 ) − s ( i + 1 , j − 1 ) + s ( i − 1 , j + 1 ) + 2 s ( i , j + 1 ) + s ( i + 1 , j + 1 )
+        // edge cases are problematic for SIMD
+        // col = 0
+        {
+            const usize col = 0;
+            const Pixel tl = row_top[0], tc = row_top[0], tr = row_top[1];
+            const Pixel ml = row_mid[0], mr = row_mid[1];
+            const Pixel bl = row_bot[0], bc = row_bot[0], br = row_bot[1];
 
-G y = + s ( i − 1 , j − 1 ) + 2 s ( i − 1 , j ) + s ( i − 1 , j + 1 ) − s ( i + 1 , j − 1 ) − 2 s ( i + 1 , j ) − s ( i + 1 , j + 1 ) 
-            */
-            // TODO(perf): optimize this for cache
-            // TODO(perf): SIMD
-            f64 Gxr = -image[row_minus_1 * stride + col_minus_1].r - 2 * image[row * stride + col_minus_1].r - image[row_plus_1 * stride + col_minus_1].r + image[row_minus_1 * stride + col_plus_1].r + 2 * image[row * stride + col_plus_1].r + image[row_plus_1 * stride + col_plus_1].r;
-            f64 Gyr = image[row_minus_1 * stride + col_minus_1].r + 2 * image[row_minus_1 * stride + col].r + image[row_minus_1 * stride + col_plus_1].r - image[row_plus_1 * stride + col_minus_1].r - 2 * image[row_plus_1 * stride + col].r - image[row_plus_1 * stride + col_plus_1].r;
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
 
-            f64 Gxg = -image[row_minus_1 * stride + col_minus_1].g - 2 * image[row * stride + col_minus_1].g - image[row_plus_1 * stride + col_minus_1].g + image[row_minus_1 * stride + col_plus_1].g + 2 * image[row * stride + col_plus_1].g + image[row_plus_1 * stride + col_plus_1].g;
-            f64 Gyg = image[row_minus_1 * stride + col_minus_1].g + 2 * image[row_minus_1 * stride + col].g + image[row_minus_1 * stride + col_plus_1].g - image[row_plus_1 * stride + col_minus_1].g - 2 * image[row_plus_1 * stride + col].g - image[row_plus_1 * stride + col_plus_1].g;
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
 
-            f64 Gxb = -image[row_minus_1 * stride + col_minus_1].b - 2 * image[row * stride + col_minus_1].b - image[row_plus_1 * stride + col_minus_1].b + image[row_minus_1 * stride + col_plus_1].b + 2 * image[row * stride + col_plus_1].b + image[row_plus_1 * stride + col_plus_1].b;
-            f64 Gyb = image[row_minus_1 * stride + col_minus_1].b + 2 * image[row_minus_1 * stride + col].b + image[row_minus_1 * stride + col_plus_1].b - image[row_plus_1 * stride + col_minus_1].b - 2 * image[row_plus_1 * stride + col].b - image[row_plus_1 * stride + col_plus_1].b;
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            energy_row[col] = (txx)mag;
+        }
 
-            energy[row * width + col] = (u8)((sqrt(Gxr * Gxr + Gyr * Gyr) + sqrt(Gxg * Gxg + Gyg * Gyg) + sqrt(Gxb * Gxb + Gyb * Gyb)) / 3.0);
+        // process inner cols with SIMD
+        OMP(simd)
+        for (usize col = 1; col < width - 1; col++) {
+            // load all, stack is aligned, so this should make it obvious for compiler to SIMDfy as Vec3A
+            const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col + 1];
+            const Pixel ml = row_mid[col - 1], mr = row_mid[col + 1];
+            const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col + 1];
+
+            // hopefully compute with SIMD as component-wise vector ops
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
+
+            // and pray that it works
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            energy_row[col] = (txx)mag;
+        }
+
+        // col = width - 1
+        {
+            const usize col = width - 1;
+            const Pixel tl = row_top[col - 1], tc = row_top[col], tr = row_top[col];
+            const Pixel ml = row_mid[col - 1], mr = row_mid[col];
+            const Pixel bl = row_bot[col - 1], bc = row_bot[col], br = row_bot[col];
+
+            const f32 Gxr = -(f32)tl.r - 2.0f * (f32)ml.r - (f32)bl.r + (f32)tr.r + 2.0f * (f32)mr.r + (f32)br.r;
+            const f32 Gxg = -(f32)tl.g - 2.0f * (f32)ml.g - (f32)bl.g + (f32)tr.g + 2.0f * (f32)mr.g + (f32)br.g;
+            const f32 Gxb = -(f32)tl.b - 2.0f * (f32)ml.b - (f32)bl.b + (f32)tr.b + 2.0f * (f32)mr.b + (f32)br.b;
+
+            const f32 Gyr = (f32)tl.r + 2.0f * (f32)tc.r + (f32)tr.r - (f32)bl.r - 2.0f * (f32)bc.r - (f32)br.r;
+            const f32 Gyg = (f32)tl.g + 2.0f * (f32)tc.g + (f32)tr.g - (f32)bl.g - 2.0f * (f32)bc.g - (f32)br.g;
+            const f32 Gyb = (f32)tl.b + 2.0f * (f32)tc.b + (f32)tr.b - (f32)bl.b - 2.0f * (f32)bc.b - (f32)br.b;
+
+            const f32 mag = (sqrtf(Gxr * Gxr + Gyr * Gyr) + sqrtf(Gxg * Gxg + Gyg * Gyg) + sqrtf(Gxb * Gxb + Gyb * Gyb)) * (1.0f / 3.0f);
+            energy_row[col] = (txx)mag;
         }
     }
 }
 
-void compute_cumulative(const u8* energy, const usize width, const usize height, u32* cumulative) {
+void compute_cumulative(const txx* const energy, const usize width, const usize height, txx* const cumulative) {
     // TODO(perf): we can avoid * by computing idx as part of the loop
     // TODO(perf): implement parallel with dependency triangles
+    const usize height_minus_1 = height - 1;
 
-    OMP(parallel for)  //
-    for (usize row = 0; row < height; row++) {
-        for (usize col = 0; col < width; col++) {
-            usize idx = (row * width + col);
-            if (row == 0) {
-                cumulative[idx] = energy[idx];
-                continue;
-            }
+    OMP(parallel)  //
+    {
+        // bottom up
+        for (usize row = height_minus_1; row < height; row--) {  // this is so wrong that it actually works
+            OMP(for) //
+            for (usize col = 0; col < width; col++) {
+                const usize idx = (row * width + col);
+                if (row == height_minus_1) {
+                    cumulative[idx] = energy[idx];
+                    continue;
+                }
+                const usize idx_prev = ((row + 1) * width + col);
 
-            if (col == 0) {
-                cumulative[idx] = energy[idx] + min(cumulative[idx - width], cumulative[idx - width + 1]);
-            } else if (col == width - 1) {
-                cumulative[idx] = energy[idx] + min(cumulative[idx - width - 1], cumulative[idx - width]);
-            } else {
-                cumulative[idx] = energy[idx] + min_3(cumulative[idx - width - 1], cumulative[idx - width], cumulative[idx - width + 1]);
+                if (col == 0) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev], cumulative[idx_prev + 1]);
+                } else if (col == width - 1) {
+                    cumulative[idx] = energy[idx] + min_txx(cumulative[idx_prev - 1], cumulative[idx_prev]);
+                } else {
+                    cumulative[idx] = energy[idx] + min_txx_3(cumulative[idx_prev - 1], cumulative[idx_prev], cumulative[idx_prev + 1]);
+                }
             }
         }
     }
@@ -162,12 +204,12 @@ void compute_cumulative(const u8* energy, const usize width, const usize height,
 // sprehodi po commulativi in poišče stolpce z najmanjšimi energijami
 // shrani jih v seam (height * n_seams_to_remove) in vrne kok seamov je naredil
 // lahko jih je manj bo pa vsaj en
-size_t find_seam(const u32* cumulative, const usize width, const usize height, usize n_seams_to_remove, usize* seam) {
-    // TODO: (perf)implement for n > 1 seams
-    u32 minimum = cumulative[0];
+size_t find_seam(const txx* const cumulative, const usize width, const usize height, const usize n_seams_to_remove, usize* const seam) {
+    // TODO(perf): implement for n > 1 seams
+    txx minimum = cumulative[0];
     usize min_column = 0;
 
-    OMP(parallel for)  //
+    // top-down
     for (usize col = 0; col < width; col++) {
         if (cumulative[col] < minimum) {
             minimum = cumulative[col];
@@ -176,21 +218,21 @@ size_t find_seam(const u32* cumulative, const usize width, const usize height, u
     }
     seam[0] = min_column;
 
-    OMP(parallel for)  //
     for (usize row = 1; row < height; row++) {
-        if (seam[row - 1] == 0) {
-            seam[row] = min_col(0, 1, cumulative[row * width], cumulative[row * width + 1]);
-        } else if (seam[row - 1] == width - 1) {
+        const usize prev_col = seam[row - 1];
+        if (prev_col == 0) {
+            seam[row] = min_col(0, 1, cumulative[row * width + 0], cumulative[row * width + 1]);
+        } else if (prev_col == width - 1) {
             seam[row] = min_col(width - 2, width - 1, cumulative[row * width + width - 2], cumulative[row * width + width - 1]);
         } else {
-            seam[row] = min_col_3(seam[row - 1] - 1, seam[row - 1], seam[row - 1] + 1, cumulative[row * width + seam[row - 1] - 1], cumulative[row * width + seam[row - 1]], cumulative[row * width + seam[row - 1] + 1]);
+            seam[row] = min_col_3(prev_col - 1, prev_col, prev_col + 1, cumulative[row * width + prev_col - 1], cumulative[row * width + prev_col], cumulative[row * width + prev_col + 1]);
         }
     }
 
     return 1;
 }
 
-void remove_seam(Pixel* image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* seam) {
+void remove_seam(Pixel* const image, const usize width, const usize stride, const usize height, const usize n_seams, const usize* const seam) {
     if (n_seams == 0) return;
     // odstrani stolpce podane v seams iz slike in shrani v image_out
     OMP(parallel for) // TODO(perf): paralization probably not worth for small images
@@ -202,29 +244,43 @@ void remove_seam(Pixel* image, const usize width, const usize stride, const usiz
                 s++;
                 continue;
             }
-            usize idx = (row * stride + col);
+            const usize idx = (row * stride + col);
             image[idx - s] = image[idx];
         }
     }
 }
 
-void main_algo(Pixel* image, usize* width, const usize height, u8* energy_buffer, u32* cumulative, usize* seam) {
-    usize stride = *width;
-    usize n_seams_to_remove = SEAMS;
+void remove_1seam(Pixel* const image, const usize width, const usize stride, const usize height, const usize* const seam) {
+    // odstrani stolpce podane v seams iz slike in shrani v image_out
+    OMP(parallel for) // TODO(perf): paralization probably not worth for small images
+    for (usize row = 0; row < height; row++) {
+        const usize s = seam[row];
+        for (usize col = s + 1; col < width; col++) {
+            const usize idx = (row * stride + col);
+            image[idx - 1] = image[idx];  // TODO(perf): memcpy?
+        }
+    }
+}
+
+Pixel* main_algo(Pixel* image, usize* width, const usize height, const usize width_to_remove, txx* const energy_buffer, txx* const cumulative, usize* const seam) {
+    const usize stride = *width;
+    usize n_seams_to_remove = width_to_remove;
     while (n_seams_to_remove > 0) {
         report_time("compute_energy", compute_energy(image, *width, stride, height, energy_buffer));
         report_time("compute_cumulative", compute_cumulative(energy_buffer, *width, height, cumulative));
         usize s;
         report_time_into_var(s, "find_seam", find_seam(cumulative, *width, height, min(SEAMS_PER_ROUND, n_seams_to_remove), seam));
-        report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
+        //report_time("remove_seam", remove_seam(image, *width, stride, height, s, seam));
+        report_time("remove_1seam", remove_1seam(image, *width, stride, height, seam));
         n_seams_to_remove -= s;
         *width -= s;
     }
+    return image;
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        printf("USAGE: sample input_image output_image\n");
+    if (argc < 4) {
+        printf("USAGE: sample input_image width_to_remove output_image\n");
         exit(EXIT_FAILURE);
     }
 
@@ -232,7 +288,9 @@ int main(int argc, char* argv[]) {
     char image_out_name[MAX_FILENAME];
 
     snprintf(image_in_name, MAX_FILENAME, "%s", argv[1]);
-    snprintf(image_out_name, MAX_FILENAME, "%s", argv[2]);
+    snprintf(image_out_name, MAX_FILENAME, "%s", argv[3]);
+
+    usize width_to_remove = (usize)atoi(argv[2]);
 
     // Load image from file and allocate space for the output image
     int orig_width, orig_height, cpp;
@@ -246,13 +304,13 @@ int main(int argc, char* argv[]) {
     usize height = (usize)orig_height;
     printf("Loaded image %s of size %zux%zu.\n", image_in_name, width, height);
 
-    u8* energy_buffer = box(width * height, u8);
-    u32* cumulative = box(width * height, u32);
+    txx* energy_buffer = box(width * height, txx);
+    txx* cumulative = box(width * height, txx);
     usize* seam = box(height * SEAMS_PER_ROUND, usize);
 
     // Copy the input image into output and mesure execution time
     double start = omp_get_wtime();
-    main_algo(image_in, &width, height, energy_buffer, cumulative, seam);
+    Pixel* im = main_algo(image_in, &width, height, width_to_remove, energy_buffer, cumulative, seam);
     double stop = omp_get_wtime();
     printf("Time(full): %f s\n", stop - start);
 
@@ -273,7 +331,7 @@ int main(int argc, char* argv[]) {
     file_type++;  // skip the dot
 
     if (!strcmp(file_type, "png"))
-        stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, image_in, (orig_width * COLOR_CHANNELS));
+        stbi_write_png(image_out_name, (int)width, (int)height, COLOR_CHANNELS, im, (orig_width * COLOR_CHANNELS));
     else
         printf("Error: Unknown image format %s! Only png, jpg, or bmp supported.\n", file_type);
 

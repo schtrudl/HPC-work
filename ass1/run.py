@@ -11,8 +11,19 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "-n",
     type=int,
-    default=5,
-    help="Number of times to repeat the execution for each image (default: 5)",
+    default=20,
+    help="Number of times to repeat the execution for each image (default: 20)",
+)
+parser.add_argument(
+    "--seams",
+    type=int,
+    default=128,
+    help="width to remove (default: 128)",
+)
+parser.add_argument(
+    "--bless",
+    action="store_true",
+    help="bless current images as result",
 )
 parser.add_argument(
     "images",
@@ -20,7 +31,8 @@ parser.add_argument(
     type=Path,
     help="Images to run on",
     default=[
-        Path("valve.png"),
+        Path("test_images/valve.png"),
+        Path("test_images/tower.png"),
         Path("test_images/720x480.png"),
         Path("test_images/1024x768.png"),
         Path("test_images/1920x1200.png"),
@@ -31,12 +43,15 @@ parser.add_argument(
 args = parser.parse_args()
 
 timings: dict[Path, dict[str, list[float]]] = {}
+out_folder_name = "result" if args.bless else "out"
 for image in args.images:
     timings[image] = {}
-    out_image = image.with_suffix(".out.png")
+    # add subfolder out
+    out_image = image.parent / out_folder_name / image.name
+    out_image.parent.mkdir(parents=True, exist_ok=True)
     for i in range(args.n):
         output = subprocess.check_output(
-            ["./sample", str(image), str(out_image)]
+            ["./sample", str(image), str(args.seams), str(out_image)]
         ).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"

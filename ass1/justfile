@@ -1,5 +1,10 @@
 c:
+    rm sample
     gcc -fsanitize=address -g -O2 -lm -lnuma --openmp sample.c -o sample
 
 r:
     ./sample valve.png valve-out.png
+
+cmp:
+    kompari-cli report test_images/out test_images/result
+    open report.html

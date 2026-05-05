@@ -1,0 +1,44 @@
+nvcc -DGENERATE_GIF -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp,-march=native ./src/lj_gpu.cu -o lj_gpu -lm
+./src/lj_gpu.cu(117): warning #177-D: variable "n_ceil_2d" was declared but never referenced
+      unsigned int n_ceil_2d = (n + 31) / 32;
+                   ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+--- blessed/2000_5000/result.txt
++++ out/2000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  2007.2494 | delta: +1007.2494
+-Final PE: -3217.0821 | delta: -1007.3599
+-Final E:  -1209.8328 | delta: -0.1105
++Final KE:  2010.9142 | delta: +1010.9142
++Final PE: -3220.7391 | delta: -1011.0169
++Final E:  -1209.8250 | delta: -0.1027
+--- blessed/8000_5000/result.txt
++++ out/8000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  9682.3070 | delta: +5682.3070
+-Final PE: -14707.0866 | delta: -5682.6034
+-Final E:  -5024.7795 | delta: -0.2964
++Final KE:  9676.3106 | delta: +5676.3106
++Final PE: -14701.0851 | delta: -5676.6019
++Final E:  -5024.7744 | delta: -0.2913
+100_100 is OK
+--- blessed/1000_5000/result.txt
++++ out/1000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:   741.8011 | delta: +241.8011
+-Final PE: -1616.4921 | delta: -241.7984
+-Final E:   -874.6910 | delta: +0.0028
++Final KE:   742.0026 | delta: +242.0026
++Final PE: -1616.6957 | delta: -242.0019
++Final E:   -874.6930 | delta: +0.0008
+--- blessed/4000_5000/result.txt
++++ out/4000_5000/result.txt
+@@ -1,3 +1,3 @@
+-Final KE:  5094.7852 | delta: +3094.7852
+-Final PE: -6635.4438 | delta: -3095.0374
+-Final E:  -1540.6586 | delta: -0.2522
++Final KE:  5109.2133 | delta: +3109.2133
++Final PE: -6649.8682 | delta: -3109.4619
++Final E:  -1540.6549 | delta: -0.2486

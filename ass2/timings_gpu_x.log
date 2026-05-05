@@ -1,0 +1,99 @@
+Running with 1x2
+Running with 1x4
+Running with 1x8
+srun: Step created for StepId=66245718.126
+srun: Step created for StepId=66245718.132
+Running with 1x16
+srun: Step created for StepId=66245718.185
+srun: Step created for StepId=66245718.194
+srun: Step created for StepId=66245718.196
+Running with 1x32
+srun: Step created for StepId=66245718.244
+Running with 1x64
+srun: Step created for StepId=66245718.262
+srun: Step created for StepId=66245718.263
+srun: Step created for StepId=66245718.288
+Running with 1x128
+srun: Step created for StepId=66245718.343
+Running with 1x256
+Running with 2x2
+srun: Step created for StepId=66245718.436
+srun: Step created for StepId=66245718.439
+Running with 2x4
+srun: Step created for StepId=66245718.497
+Running with 2x8
+srun: Step created for StepId=66245718.532
+Running with 2x16
+Running with 2x32
+Running with 2x64
+srun: Step created for StepId=66245718.651
+srun: Step created for StepId=66245718.688
+Running with 2x128
+Running with 2x256
+srun: Step created for StepId=66245718.787
+Running with 4x2
+Running with 4x4
+srun: Step created for StepId=66245718.873
+srun: Step created for StepId=66245718.874
+Running with 4x8
+Running with 4x16
+Running with 4x32
+srun: Step created for StepId=66245718.1037
+srun: Step created for StepId=66245718.1045
+Running with 4x64
+srun: Step created for StepId=66245718.1088
+Running with 4x128
+srun: Step created for StepId=66245718.1142
+srun: Step created for StepId=66245718.1149
+Running with 4x256
+srun: Step created for StepId=66245718.1187
+Running with 8x2
+srun: Step created for StepId=66245718.1221
+Running with 8x4
+srun: Step created for StepId=66245718.1256
+srun: Step created for StepId=66245718.1294
+Running with 8x8
+Running with 8x16
+srun: Step created for StepId=66245718.1383
+srun: Step created for StepId=66245718.1385
+srun: Step created for StepId=66245718.1398
+Running with 8x32
+srun: Step created for StepId=66245718.1429
+Running with 8x64
+srun: Step created for StepId=66245718.1455
+srun: Step created for StepId=66245718.1498
+Running with 8x128
+Running with 16x2
+Running with 16x4
+srun: Step created for StepId=66245718.1614
+Running with 16x8
+srun: Step created for StepId=66245718.1686
+Running with 16x16
+srun: Step created for StepId=66245718.1739
+srun: Step created for StepId=66245718.1741
+Running with 16x32
+srun: Step created for StepId=66245718.1782
+srun: Step created for StepId=66245718.1794
+Running with 16x64
+srun: Step created for StepId=66245718.1846
+Running with 32x2
+Running with 32x4
+srun: Step created for StepId=66245718.1922
+srun: Step created for StepId=66245718.1924
+srun: Step created for StepId=66245718.1941
+Running with 32x8
+Running with 32x16
+srun: Step created for StepId=66245718.2001
+Running with 32x32
+Running with 64x2
+Running with 64x4
+Running with 64x8
+Running with 64x16
+srun: Step created for StepId=66245718.2293
+Running with 128x2
+Running with 128x4
+Running with 128x8
+srun: Step created for StepId=66245718.2431
+srun: Step created for StepId=66245718.2432
+Running with 256x2
+Running with 256x4

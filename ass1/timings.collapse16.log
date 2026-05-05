@@ -1,0 +1,15 @@
+rm: cannot remove 'sample': No such file or directory
+test_images/valve.png:
+  full: 0.1122 s ± 0.0020 s
+test_images/tower.png:
+  full: 0.3886 s ± 0.0025 s
+test_images/720x480.png:
+  full: 0.1300 s ± 0.0010 s
+test_images/1024x768.png:
+  full: 0.2546 s ± 0.0030 s
+test_images/1920x1200.png:
+  full: 0.5852 s ± 0.0029 s
+test_images/3840x2160.png:
+  full: 1.9798 s ± 0.0031 s
+test_images/7680x4320.png:
+  full: 7.1679 s ± 0.0088 s
