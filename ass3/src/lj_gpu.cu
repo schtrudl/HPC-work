@@ -21,6 +21,9 @@
 
 #define usize size_t
 #define WARP_SIZE 32
+#ifndef BLOCK_SIZE
+    #define BLOCK_SIZE 256
+#endif
 
 // plotting functions
 #if GENERATE_GIF
@@ -433,11 +436,11 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 #if LJ_GPU
 
     // each thread for one particle
-    dim3 block_size_n(256);
+    dim3 block_size_n(BLOCK_SIZE);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
     // 2D grid for n**2
-    dim3 block_size_2d(256, 1);
+    dim3 block_size_2d(BLOCK_SIZE, 1);
     dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
 
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
