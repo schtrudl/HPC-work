@@ -143,8 +143,7 @@ void inline first_update(Vec2* pos, Vec2* vel, Vec2* force, unsigned int n, doub
 }
 
 #ifndef CELL_SKIN
-    // TODO: search for good value for this parameter
-    #define CELL_SKIN 0.3
+    #define CELL_SKIN 0.1
 #endif
 
 /// Cell list with Verlet skin: cells of size (R_CUT + overlapping CELL_SKIN).
