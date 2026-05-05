@@ -119,9 +119,6 @@ Vec2* d_vel;
 Vec2* d_force;
 double* d_result;
 
-// GPU cell list — mirrors the CPU linked-list CellList exactly.
-// Rebuild is done on the CPU: download positions, run the same head/next/pcell
-// logic, then upload to device.  Force kernels traverse head[nc]->next[j] chains.
 #ifndef CELL_SKIN
     #define CELL_SKIN 0.3
 #endif
@@ -130,7 +127,6 @@ int g_nx, g_ny, g_n_cells;
 double g_inv_cx, g_inv_cy;
 unsigned int g_n = 0;
 
-// device cell list arrays (same roles as CellList in lj_cpu.cpp)
 int* d_head;  // [n_cells] linked-list head per cell, -1 = empty
 int* d_next;  // [n]       next particle in same cell, -1 = end
 int* d_pcell;  // [n]       current cell index per particle
@@ -171,7 +167,6 @@ void cl_rebuild(unsigned int n) {
     // Download current positions from device
     checkCudaErrors(cudaMemcpy(h_pos_tmp, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
 
-    // CPU rebuild — identical logic to cl_rebuild() in lj_cpu.cpp
     for (int c = 0; c < g_n_cells; c++)
         h_head[c] = -1;
     for (int i = (int)n - 1; i >= 0; i--) {
@@ -344,7 +339,7 @@ constexpr double v_shift = 4.0 * EPSILON * (sigma_over_rcut_12 - sigma_over_rcut
 constexpr double rc2 = R_CUT * R_CUT;
 
 /// Cell-list based GPU force kernel with PE.
-/// One thread per particle i; traverses head[nc]->next[j] chain per neighbour cell.
+/// One thread per particle i
 __global__ void d_compute_forces(Vec2* pos, Vec2* force, unsigned int n, double box_size, double* result, const int* head, const int* next, const int* pcell, int nx, int ny) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
