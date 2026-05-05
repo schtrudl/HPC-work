@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=3
 #SBATCH --gpus=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_gpu_14_tiling_always_on_gpu.log
+#SBATCH --output=timings_gpu_13_tiling_on_gpu.log
 #SBATCH --time=00:30:00
 #SBATCH --mem=16G
 #SBATCH --hint=nomultithread
