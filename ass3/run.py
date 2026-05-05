@@ -3,6 +3,7 @@
 import subprocess
 import argparse
 import re
+import os
 
 parser = argparse.ArgumentParser(
     description="This script will run program in selected input n times and extract and compute timing statistics."
@@ -40,6 +41,10 @@ binary = args.binary if args.binary.startswith("lj_") else f"lj_{args.binary}"
 if not args.particles:
     args.particles = [1000, 2000, 4000, 8000]
 
+try:
+    os.remove(binary)
+except OSError:
+    pass
 subprocess.run(
     ["make", binary],
     check=True,
