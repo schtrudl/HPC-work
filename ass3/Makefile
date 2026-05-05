@@ -15,18 +15,21 @@ ifdef BLOCK_SIZE
 AFLAGS += -DBLOCK_SIZE=$(BLOCK_SIZE)
 endif
 
-.PHONY: all lj_cpu lj_gpu lj_cpu2 clean
+.PHONY: all lj_cpu lj_gpu lj_gpu2 lj_cpu2 clean
 
-all: lj_cpu lj_gpu lj_cpu2
+all: lj_cpu lj_gpu lj_gpu2 lj_cpu2
 
 lj_cpu:
 	c++ $(AFLAGS) -O3 -march=native --openmp ./src/lj_cpu.cpp -o lj_cpu $(LDLIBS)
+
+lj_gpu2:
+	nvcc $(AFLAGS) $(CFLAGS) ./src/lj.cu -o lj_gpu2 $(LDLIBS)
 
 lj_gpu:
 	nvcc $(AFLAGS) $(CFLAGS) ./src/lj_gpu.cu -o lj_gpu $(LDLIBS)
 
 lj_cpu2:
-	nvcc $(AFLAGS) -DLJ_GPU=0 $(CFLAGS) ./src/lj_gpu.cu -o lj_cpu2 $(LDLIBS)
+	nvcc $(AFLAGS) -DLJ_GPU=0 $(CFLAGS) ./src/lj.cu -o lj_cpu2 $(LDLIBS)
 
 clean:
-	rm -f lj_cpu lj_gpu lj_cpu2
+	rm -f lj_cpu lj_gpu lj_gpu2 lj_cpu2
