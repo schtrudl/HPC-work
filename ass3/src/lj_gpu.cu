@@ -139,6 +139,14 @@ double* d_ref_x;  // [n]       particle x at last rebuild
 double* d_ref_y;  // [n]       particle y at last rebuild
 int* d_rebuild_flag;
 
+// host-side mirrors used during CPU rebuild
+static int* h_head = nullptr;
+static int* h_next = nullptr;
+static int* h_pcell = nullptr;
+static double* h_ref_x = nullptr;
+static double* h_ref_y = nullptr;
+static Vec2* h_pos_tmp = nullptr;
+
 static constexpr double gpu_skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
 
 __global__ void d_cl_needs_rebuild_kernel(const Vec2* pos, const double* ref_x, const double* ref_y, unsigned int n, double bs, int* flag) {
@@ -151,35 +159,39 @@ __global__ void d_cl_needs_rebuild_kernel(const Vec2* pos, const double* ref_x, 
     if (dx * dx + dy * dy > gpu_skin2) atomicOr(flag, 1);
 }
 
-/// Single-thread GPU kernel that rebuilds the linked-list cell list in place.
-/// Identical logic to cl_rebuild() in lj_cpu.cpp, no host<->device copies needed.
-__global__ void d_cl_rebuild_kernel(const Vec2* pos, int* head, int* next, int* pcell, double* ref_x, double* ref_y, unsigned int n, int nx, int ny, double inv_cx, double inv_cy, int n_cells) {
-    if (threadIdx.x != 0 || blockIdx.x != 0) return;
-    for (int c = 0; c < n_cells; c++)
-        head[c] = -1;
+/// Rebuild cell list on CPU, then upload head/next/pcell/ref to device.
+void gpu_cl_rebuild(unsigned int n) {
+    // Download current positions from device
+    checkCudaErrors(cudaMemcpy(h_pos_tmp, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
+
+    // CPU rebuild — identical logic to cl_rebuild() in lj_cpu.cpp
+    for (int c = 0; c < g_n_cells; c++)
+        h_head[c] = -1;
     for (int i = (int)n - 1; i >= 0; i--) {
-        int cx = (int)(pos[i].x * inv_cx);
-        int cy = (int)(pos[i].y * inv_cy);
+        int cx = (int)(h_pos_tmp[i].x * g_inv_cx);
+        int cy = (int)(h_pos_tmp[i].y * g_inv_cy);
         if (cx < 0)
             cx = 0;
-        else if (cx >= nx)
-            cx = nx - 1;
+        else if (cx >= g_nx)
+            cx = g_nx - 1;
         if (cy < 0)
             cy = 0;
-        else if (cy >= ny)
-            cy = ny - 1;
-        int c = cy * nx + cx;
-        pcell[i] = c;
-        next[i] = head[c];
-        head[c] = i;
-        ref_x[i] = pos[i].x;
-        ref_y[i] = pos[i].y;
+        else if (cy >= g_ny)
+            cy = g_ny - 1;
+        int c = cy * g_nx + cx;
+        h_pcell[i] = c;
+        h_next[i] = h_head[c];
+        h_head[c] = i;
+        h_ref_x[i] = h_pos_tmp[i].x;
+        h_ref_y[i] = h_pos_tmp[i].y;
     }
-}
 
-void gpu_cl_rebuild(unsigned int n) {
-    d_cl_rebuild_kernel<<<1, 1>>>(d_pos, d_head, d_next, d_pcell, d_ref_x, d_ref_y, n, g_nx, g_ny, g_inv_cx, g_inv_cy, g_n_cells);
-    checkCudaErrors(cudaGetLastError());
+    // Upload new cell list to device
+    checkCudaErrors(cudaMemcpy(d_head, h_head, g_n_cells * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_next, h_next, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_pcell, h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_ref_x, h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_ref_y, h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
 }
 
 bool gpu_cl_needs_rebuild(unsigned int n, double box_size) {
@@ -218,6 +230,13 @@ void init_cuda(Particle* particles, unsigned int n, double box_size) {
     checkCudaErrors(cudaMalloc((void**)&d_ref_x, n * sizeof(double)));
     checkCudaErrors(cudaMalloc((void**)&d_ref_y, n * sizeof(double)));
     checkCudaErrors(cudaMalloc((void**)&d_rebuild_flag, sizeof(int)));
+
+    h_head = (int*)malloc(g_n_cells * sizeof(int));
+    h_next = (int*)malloc(n * sizeof(int));
+    h_pcell = (int*)malloc(n * sizeof(int));
+    h_ref_x = (double*)malloc(n * sizeof(double));
+    h_ref_y = (double*)malloc(n * sizeof(double));
+    h_pos_tmp = (Vec2*)malloc(n * sizeof(Vec2));
 
     g_n = n;
 #endif
