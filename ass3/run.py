@@ -17,7 +17,7 @@ parser.add_argument(
 # valid binaries are lenia_cpu and lenia_gpu
 parser.add_argument(
     "binary",
-    choices=["lj_cpu", "lj_gpu", "lj_cpu2", "cpu", "gpu", "cpu2"],
+    choices=["lj_cpu", "lj_gpu", "lj_cpu2", "cpu", "gpu", "cpu2", "lj_gpu2", "gpu2"],
 )
 parser.add_argument(
     "--particles",
