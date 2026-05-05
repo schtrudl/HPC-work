@@ -572,9 +572,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         // leapfrog
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        if (gpu_cl_needs_rebuild(n, box_size)) {
-            gpu_cl_rebuild(n);
-        }
+        gpu_cl_rebuild(n);
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
         d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_head, d_next, d_pcell, g_nx, g_ny);
         checkCudaErrors(cudaGetLastError());
@@ -591,9 +589,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        if (gpu_cl_needs_rebuild(n, box_size)) {
-            gpu_cl_rebuild(n);
-        }
+        gpu_cl_rebuild(n);
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
         d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result, d_head, d_next, d_pcell, g_nx, g_ny);
