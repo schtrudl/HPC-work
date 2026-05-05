@@ -443,30 +443,17 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 block_size_2d(BLOCK_SIZE, 1);
     dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
 
-    double time_spent_on_first_update = 0.0;
-    double time_spent_on_force = 0.0;
-    double time_spent_on_pe = 0.0;
-    double time_spent_on_ke = 0.0;
-    double time_spent_on_second_update = 0.0;
-    double time_start, time_end;
-
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_vel, particles[0].velocity, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     // forces are zeroed on initialize_particles
     // result is zeroed from init
-    time_start = omp_get_wtime();
     d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
-    time_end = omp_get_wtime();
-    time_spent_on_pe += time_end - time_start;
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    time_start = omp_get_wtime();
     d_compute_ke<<<grid_size_n, block_size_n>>>(d_vel, n, d_result);
     checkCudaErrors(cudaGetLastError());
-    time_end = omp_get_wtime();
-    time_spent_on_ke += time_end - time_start;
     checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
     out.start_total = out.start_kinetic + out.start_potential;
@@ -485,22 +472,13 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     unsigned int steps_without_log = log_steps ? 0 : nsteps - 1;
     for (unsigned int step = 0; step < steps_without_log; step++) {
         // leapfrog
-        time_start = omp_get_wtime();
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_first_update += time_end - time_start;
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        time_start = omp_get_wtime();
         d_compute_forces_no_pe<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_force += time_end - time_start;
-        time_start = omp_get_wtime();
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_second_update += time_end - time_start;
     #if GENERATE_GIF
         if (gif && FRAME_EVERY > 0 && (step + 1) % FRAME_EVERY == 0) {
             checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
@@ -510,31 +488,19 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     #endif
     }
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
-        time_start = omp_get_wtime();
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_first_update += time_end - time_start;
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        time_start = omp_get_wtime();
         d_compute_forces<<<grid_size_2d, block_size_2d>>>(d_pos, d_force, n, box_size, d_result);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_pe += time_end - time_start;
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
-        time_start = omp_get_wtime();
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_second_update += time_end - time_start;
 
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-        time_start = omp_get_wtime();
         d_compute_ke<<<grid_size_n, block_size_n>>>(d_vel, n, d_result);
         checkCudaErrors(cudaGetLastError());
-        time_end = omp_get_wtime();
-        time_spent_on_ke += time_end - time_start;
         checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         out.final_total = out.final_kinetic + out.final_potential;
         if (log_steps) {
@@ -553,11 +519,6 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     checkCudaErrors(cudaMemcpy(particles[0].position, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(particles[0].velocity, d_vel, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(particles[0].force, d_force, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
-    printf("Time(first_update): %f s\n", time_spent_on_first_update);
-    printf("Time(force): %f s\n", time_spent_on_force);
-    printf("Time(pe): %f s\n", time_spent_on_pe);
-    printf("Time(second_update): %f s\n", time_spent_on_second_update);
-    printf("Time(ke): %f s\n", time_spent_on_ke);
 #else
     Vec2* pos = particles[0].position;
     Vec2* vel = particles[0].velocity;
