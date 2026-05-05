@@ -126,9 +126,9 @@ double* d_result;
     #define CELL_SKIN 0.3
 #endif
 
-static int g_nx, g_ny, g_n_cells;
-static double g_inv_cx, g_inv_cy;
-static unsigned int g_n = 0;
+int g_nx, g_ny, g_n_cells;
+double g_inv_cx, g_inv_cy;
+unsigned int g_n = 0;
 
 // device cell list arrays (same roles as CellList in lj_cpu.cpp)
 int* d_head;  // [n_cells] linked-list head per cell, -1 = empty
@@ -139,27 +139,35 @@ double* d_ref_y;  // [n]       particle y at last rebuild
 int* d_rebuild_flag;
 
 // host-side mirrors used during CPU rebuild
-static int* h_head = nullptr;
-static int* h_next = nullptr;
-static int* h_pcell = nullptr;
-static double* h_ref_x = nullptr;
-static double* h_ref_y = nullptr;
-static Vec2* h_pos_tmp = nullptr;
+int* h_head;
+int* h_next;
+int* h_pcell;
+double* h_ref_x;
+double* h_ref_y;
+Vec2* h_pos_tmp;
 
-static constexpr double gpu_skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+constexpr double gpu_skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
 
-__global__ void d_cl_needs_rebuild_kernel(const Vec2* pos, const double* ref_x, const double* ref_y, unsigned int n, double bs, int* flag) {
+__global__ void d_cl_needs_rebuild(const Vec2* pos, const double* ref_x, const double* ref_y, unsigned int n, double bs, int* needs_rebuild) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= (int)n) return;
-    double dx = pos[i].x - ref_x[i];
-    double dy = pos[i].y - ref_y[i];
-    dx -= bs * nearbyint(dx / bs);
-    dy -= bs * nearbyint(dy / bs);
-    if (dx * dx + dy * dy > gpu_skin2) atomicOr(flag, 1);
+    int my_needs_rebuild = 0;
+    if (i < n) {
+        double dx = pos[i].x - ref_x[i];
+        double dy = pos[i].y - ref_y[i];
+        dx -= bs * nearbyint(dx / bs);
+        dy -= bs * nearbyint(dy / bs);
+        if (dx * dx + dy * dy > gpu_skin2) {
+            my_needs_rebuild = 1;
+        }
+    }
+    block_reduce(my_needs_rebuild);
+    if (threadIdx.x == 0 && my_needs_rebuild) {
+        *needs_rebuild = 1;
+    }
 }
 
-/// Rebuild cell list on CPU, then upload head/next/pcell/ref to device.
-void gpu_cl_rebuild(unsigned int n) {
+/// Rebuild cell list on CPU, then upload it back to device.
+void cl_rebuild(unsigned int n) {
     // Download current positions from device
     checkCudaErrors(cudaMemcpy(h_pos_tmp, d_pos, n * sizeof(Vec2), cudaMemcpyDeviceToHost));
 
@@ -186,18 +194,20 @@ void gpu_cl_rebuild(unsigned int n) {
     }
 
     // Upload new cell list to device
-    checkCudaErrors(cudaMemcpy(d_head, h_head, g_n_cells * sizeof(int), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpy(d_next, h_next, n * sizeof(int), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpy(d_pcell, h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpy(d_ref_x, h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpy(d_ref_y, h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_head, h_head, g_n_cells * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_next, h_next, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_pcell, h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_ref_x, h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(d_ref_y, h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
 }
 
-bool gpu_cl_needs_rebuild(unsigned int n, double box_size) {
+/// the check is done on the GPU
+/// because it can be done in parallel and avoids copy
+bool cl_needs_rebuild(unsigned int n, double box_size) {
     checkCudaErrors(cudaMemset(d_rebuild_flag, 0, sizeof(int)));
-    dim3 blk(256);
-    dim3 grd((n + 255) / 256);
-    d_cl_needs_rebuild_kernel<<<grd, blk>>>(d_pos, d_ref_x, d_ref_y, n, box_size, d_rebuild_flag);
+    dim3 blk(BLOCK_SIZE);
+    dim3 grd((n + blk.x - 1) / blk.x);
+    d_cl_needs_rebuild<<<grd, blk>>>(d_pos, d_ref_x, d_ref_y, n, box_size, d_rebuild_flag);
     checkCudaErrors(cudaGetLastError());
     int flag = 0;
     checkCudaErrors(cudaMemcpy(&flag, d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
@@ -435,8 +445,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_vel, particles[0].velocity, n * sizeof(Vec2), cudaMemcpyHostToDevice));
 
-    // Build initial cell list
-    gpu_cl_rebuild(n);
+    cl_rebuild(n);
 
     // forces are zeroed on initialize_particles
     // result is zeroed from init
@@ -467,8 +476,8 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         // leapfrog
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        if (gpu_cl_needs_rebuild(n, box_size)) {
-            gpu_cl_rebuild(n);
+        if (cl_needs_rebuild(n, box_size)) {
+            cl_rebuild(n);
         }
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
         d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_head, d_next, d_pcell, g_nx, g_ny);
@@ -486,8 +495,8 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     for (unsigned int step = steps_without_log; step < nsteps; step++) {
         d_first_update<<<grid_size_n, block_size_n>>>(d_pos, d_vel, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
-        if (gpu_cl_needs_rebuild(n, box_size)) {
-            gpu_cl_rebuild(n);
+        if (cl_needs_rebuild(n, box_size)) {
+            cl_rebuild(n);
         }
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
