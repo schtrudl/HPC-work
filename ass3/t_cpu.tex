@@ -1,0 +1,29 @@
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|l|c|c|c|c|}
+        \hline
+                                 & \textbf{1000}   & \textbf{2000}   & \textbf{4000}    & \textbf{8000}   \\
+        \hline
+        \textbf{baseline}        & 30.28           & 109.94          & 415.01           & 1612            \\
+
+        \textbf{parallel}        & 2.789 (10.86x)  & 8.932 (12.309x) & 32.09 (12.931x)  & 122.42 (13.17x) \\
+
+        \textbf{no\_logging}     & 2.522 (12.01x)  & 8.431 (13.040x) & 31.22 (13.294x)  & 121.0 (13.33x)  \\
+
+        \textbf{compute\_forces} & 2.086 (14.52x)  & 7.024 (15.651x) & 25.61 (16.21x)   & 97.4 (16.55x)   \\
+
+        symmetry                 & 2.194 (13.80x)  & 7.737 (14.209x) & 29.44 (14.099x)  & 115.5 (13.96x)  \\
+
+        \textbf{vec2}            & 1.769 (17.12x)  & 6.351 (17.31x)  & 24.095 (17.224x) & 93.22 (17.30x)  \\
+
+        SoA                      & 2.161 (14.02x)  & 7.924 (13.87x)  & 30.37 (13.67x)   & 119.20 (13.53x) \\
+
+        \textbf{better\_math}    & 0.7768 (38.98x) & 2.751 (39.96x)  & 10.519 (39.45x)  & 40.82 (39.5x)   \\
+
+        \textbf{tiling}          & 0.160 (190x)    & 0.282 (389x)    & 0.667 (622x)     & 1.420 (1135x)   \\
+
+        \hline
+    \end{tabular}
+    \caption{Time in seconds and speedup on 16 cores, each row includes improvements from bold upper rows.}
+    \label{tab:cpu-timings}
+\end{table}

@@ -1,0 +1,36 @@
+\begin{table}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Step} & \textbf{b32} & \textbf{b64} & \textbf{b128} & \textbf{b256} & \textbf{b512} \\
+\hline
+\textbf{first\_update} & 0.19 & 0.090 & 0.054 & 0.054 & \textbf{0.051} \\
+\textbf{force} & \textbf{0.018} & 0.019 & \textbf{0.018} & \textbf{0.018} & 0.019 \\
+\textbf{PE} & 0.017 & 0.017 & 0.019 & \textbf{0.0160} & 0.018 \\
+\textbf{second\_update} & \textbf{0.018} & 0.019 & \textbf{0.018} & \textbf{0.018} & 0.019 \\
+\textbf{KE} & 0.016 & 0.016 & 0.018 & \textbf{0.0151} & 0.017 \\
+\hline
+\end{tabular}
+\caption{GPU step timings (seconds) for $N=1000$ particles.}
+\label{tab:gpu-steps-1000}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Step} & \textbf{b32} & \textbf{b64} & \textbf{b128} & \textbf{b256} & \textbf{b512} \\
+\hline
+\textbf{first\_update} & 12.81 & 6.427 & 4.300 & 4.147 & \textbf{4.053} \\
+\textbf{force} & 0.0155 & \textbf{0.0153} & 0.0159 & 0.0160 & 0.0162 \\
+\textbf{PE} & \textbf{0.0159} & 0.0160 & 0.0160 & \textbf{0.0159} & \textbf{0.0159} \\
+\textbf{second\_update} & 0.0150 & 0.0151 & 0.0147 & 0.0147 & \textbf{0.0144} \\
+\textbf{KE} & \textbf{0.0152} & \textbf{0.0152} & \textbf{0.0152} & \textbf{0.0152} & \textbf{0.0152} \\
+\hline
+\end{tabular}
+\caption{GPU step timings (seconds) for $N=8000$ particles.}
+\label{tab:gpu-steps-8000}
+\end{minipage}
+\end{table}

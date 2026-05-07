@@ -1,0 +1,21 @@
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|l|c|c|c|c|}
+        \hline
+                                   & \textbf{1000}       & \textbf{2000}       & \textbf{4000}       & \textbf{8000}         \\
+        \hline
+        initial CPU                & 30.28               & 109.94              & 415.01              & 1612                  \\
+
+        CPU better math (64 cores) & 0.445 (68x)         & 1.04 (106x)         & 3.34 (124x)         & 12.29 (131x)          \\
+
+        CPU tiling (32 cores)      & 0.169 (179x, 2.63x) & 0.241 (456x, 4.3x)  & 0.374 (1110x, 8.9x) & 0.779 (2069x, 15.8x)  \\
+
+        GPU better math            & 0.116 (261x, 1.46x) & 0.308 (357x, 0.78x) & 1.109 (374x, 0.34x) & 4.36 (370x, 0.18x)    \\
+
+        GPU tiling                 & 0.33 (91.8x, 0.35x) & 0.321 (342x, 0.96x) & 0.340 (1221x, 3.3x) & 0.3571 (4514x, 12.2x) \\
+
+        \hline
+    \end{tabular}
+    \caption{Time in seconds and cumulative speedups relative to all previous rows.}
+    \label{tab:cpu-timings}
+\end{table}

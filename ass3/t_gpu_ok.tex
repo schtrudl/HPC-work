@@ -1,0 +1,43 @@
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|l|c|c|c|c|}
+        \hline
+                                          & \textbf{1000} & \textbf{2000}   & \textbf{4000}   & \textbf{8000}   \\
+        \hline
+        \textbf{cx64}                     & 0.445         & 1.04            & 3.34            & 12.29           \\
+
+        \textbf{gpu\_1\_all\_gpu}         & 2.74 (0.162x) & 4.7101 (0.221x) & 8.5941 (0.388x) & 16.491 (0.745x) \\
+
+        \textbf{gpu\_2\_reduce}           & 2.74 (0.162x) & 4.7104 (0.221x) & 8.5957 (0.388x) & 16.492 (0.745x) \\
+
+        \textbf{gpu\_30\_no\_reduce}      & 2.95 (0.151x) & 4.964 (0.210x)  & 8.839 (0.378x)  & 16.767 (0.733x) \\
+
+        \textbf{gpu\_33\_block\_reduce}   & 2.94 (0.151x) & 4.911 (0.212x)  & 8.814 (0.379x)  & 16.759 (0.733x) \\
+
+        \textbf{gpu\_3\_block\_reduce}    & 2.74 (0.162x) & 4.7101 (0.221x) & 8.5937 (0.389x) & 16.492 (0.745x) \\
+
+        \textbf{gpu\_4\_2D}               & 1.48 (0.300x) & 3.794 (0.275x)  & 8.252 (0.405x)  & 22.50 (0.546x)  \\
+
+        \textbf{gpu\_5\_2D\_WARP\_reduce} & 0.27 (1.6x)   & 0.6208 (1.68x)  & 2.0258 (1.648x) & 7.255 (1.694x)  \\
+
+        \textbf{gpu\_6\_2D\_y\_1}         & 0.19 (2.3x)   & 0.4821 (2.16x)  & 1.651 (2.02x)   & 6.20 (1.98x)    \\
+
+        \textbf{gpu\_7\_2D\_atomic32}     & 0.22 (2.1x)   & 0.5737 (1.82x)  & 2.0037 (1.67x)  & 8.826 (1.393x)  \\
+
+        \textbf{gpu\_8\_vec2}             & 0.18 (2.4x)   & 0.4734 (2.20x)  & 1.561 (2.14x)   & 5.71 (2.15x)    \\
+
+        \textbf{gpu\_9\_double2}          & 0.18 (2.5x)   & 0.4702 (2.22x)  & 1.55 (2.15x)    & 5.64 (2.18x)    \\
+
+        \textbf{gpu\_10\_soa}             & 0.20 (2.3x)   & 0.4916 (2.12x)  & 1.595 (2.09x)   & 5.82 (2.11x)    \\
+
+        \textbf{gpu\_11\_better\_math}    & 0.116 (3.8x)  & 0.308 (3.38x)   & 1.109 (3.01x)   & 4.36 (2.82x)    \\
+
+        \textbf{gpu\_12\_tiling}          & 0.34 (1.31x)  & 0.334 (3.12x)   & 0.3584 (9.32x)  & 0.3821 (32.2x)  \\
+
+        \textbf{gpu\_13\_tiling}          & 0.33 (1.36x)  & 0.321 (3.25x)   & 0.340 (9.82x)   & 0.3571 (34.4x)  \\
+
+        \hline
+    \end{tabular}
+    \caption{Time in seconds and speedup relative to baseline (first file).}
+    \label{tab:cpu-timings}
+\end{table}
