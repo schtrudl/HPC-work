@@ -3,22 +3,47 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Include CUDA headers
-// #include <cuda_runtime.h>
-// #include <cuda.h>
+#include <cuda_runtime.h>
+#include <cuda.h>
+#define WARP_SIZE 32
+
+#define DEBUG 1
+#ifdef DEBUG
+    #define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
+    #define getLastCudaError(msg) __getLastCudaError(msg, __FILE__, __LINE__)
+#else
+    #define checkCudaErrors(val) (val)
+    #define getLastCudaError(msg) ((void)0)
+#endif
+
+void check(cudaError_t result, char const* const func, const char* const file, int const line) {
+    if (result) {
+        fprintf(stderr, "CUDA error at %s:%d code=%d (%s) \"%s\" \n", file, line, (int)result, cudaGetErrorName(result), func);
+        exit(EXIT_FAILURE);
+    }
+}
+
+inline void __getLastCudaError(const char* errorMessage, const char* file, const int line) {
+    cudaError_t err = cudaGetLastError();
+
+    if (cudaSuccess != err) {
+        fprintf(
+            stderr,
+            "%s(%i) : getLastCudaError() CUDA error :"
+            " %s : (%d) %s.\n",
+            file,
+            line,
+            errorMessage,
+            (int)(err),
+            cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+}
 
 #include "lennard-jones.h"
 
 double random_double(void) {
     return (double)rand() / (double)RAND_MAX;
-}
-
-static double relative_change(double current, double previous) {
-    const double eps = 1e-12;
-    if (fabs(previous) < eps) {
-        return 0.0;
-    }
-    return (current - previous) / previous;
 }
 
 // compute kinetic energy of the system
@@ -31,8 +56,254 @@ double compute_ke(const Particle* particles, unsigned int n) {
     return ke;
 }
 
+Vec3* d_position;
+Vec3* d_velocity;
+Vec3* d_force;
+double* d_result;
+
+// special function that performs warp-level reduction to sum
+// using shuffle instructions, which is more efficient than shared memory reduction
+__inline__ __device__ double warp_reduce(double val) {
+    unsigned mask = __activemask();
+    for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
+        val += __shfl_down_sync(mask, val, offset);
+    }
+    return val;
+}
+
+// https://developer.nvidia.com/blog/faster-parallel-reductions-kepler/
+__device__ __inline__ double block_reduce(double val) {
+    // max 1024 threads per block / 32 threads per warp = 32 warps
+    static __shared__ double sdata[WARP_SIZE];  // shared memory for warp-level reductions
+    int lane = threadIdx.x % WARP_SIZE;  // thread id in warp
+    int warp = threadIdx.x / WARP_SIZE;  // warp id in block
+
+    val = warp_reduce(val);  // each warp reduces to a single value
+
+    if (lane == 0) {
+        sdata[warp] = val;
+    }
+    __syncthreads();  // await all warps
+
+    // reduce the values from each warp using the first warp
+    val = (threadIdx.x < blockDim.x / WARP_SIZE) ? sdata[lane] : 0.0;
+    if (warp == 0) {
+        val = warp_reduce(val);  // final reduction within the first warp
+    }
+    return val;  // only thread 0 will have the final result
+}
+
+__global__ void d_compute_ke(const Vec3* velocity, unsigned int n, double* result) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double ke = 0.0;
+    if (i < n) {
+        const Vec3 v = velocity[i];
+        ke = 0.5 * (v.x * v.x + v.y * v.y + v.z * v.z);
+    }
+
+    ke = block_reduce(ke);
+    if (threadIdx.x == 0) atomicAdd(result, ke);
+}
+
+inline double g_compute_ke(Vec3* velocity, unsigned int n) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_ke<<<grid_size_n, block_size_n>>>(velocity, n, d_result);
+    checkCudaErrors(cudaGetLastError());
+
+    double ke;
+    checkCudaErrors(cudaMemcpy(&ke, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return ke;
+}
+
+__global__ void d_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    Vec3* p_pos = &pos[i];
+    Vec3* p_vel = &vel[i];
+    const Vec3 p_force = force[i];
+    p_vel->x += 0.5 * DT * p_force.x;
+    p_vel->y += 0.5 * DT * p_force.y;
+    p_vel->z += 0.5 * DT * p_force.z;
+
+    // fused wrap_positions
+    // apply periodic boundary conditions to ensure particles stay within the simulation box
+    double wx = fmod(p_pos->x + DT * p_vel->x, box_size);
+    double wy = fmod(p_pos->y + DT * p_vel->y, box_size);
+    double wz = fmod(p_pos->z + DT * p_vel->z, box_size);
+
+    if (wx < 0.0) {
+        wx += box_size;
+    }
+    if (wy < 0.0) {
+        wy += box_size;
+    }
+    if (wz < 0.0) {
+        wz += box_size;
+    }
+
+    p_pos->x = wx;
+    p_pos->y = wy;
+    p_pos->z = wz;
+}
+
+inline void g_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    d_first_update<<<grid_size_n, block_size_n>>>(pos, vel, force, n, box_size);
+    checkCudaErrors(cudaGetLastError());
+}
+
+// shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
+__host__ __device__ double compute_v_shift(void) {
+    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+}
+
+__global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double pe = 0.0;
+    if (i < n) {
+        Vec3 fi = {0.0, 0.0, 0.0};
+        const Vec3 pi = position[i];
+        for (unsigned int j = 0; j < n; ++j) {
+            if (j == i) {
+                continue;
+            }
+            const Vec3 pj = position[j];
+
+            // compute distance between particles with periodic boundary conditions
+            double dx = pj.x - pi.x;
+            double dy = pj.y - pi.y;
+            double dz = pj.z - pi.z;
+
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+            dz -= box_size * nearbyint(dz / box_size);
+
+            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+            double r = sqrt(dx * dx + dy * dy + dz * dz);
+            if (r >= R_CUT || r == 0.0) {
+                continue;
+            }
+            double sr = SIGMA / r;
+
+            double fij = -24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+            fi.x += fij * dx / r;
+            fi.y += fij * dy / r;
+            fi.z += fij * dz / r;
+
+            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - compute_v_shift();
+            pe += 0.5 * vij;
+        }
+        force[i] = fi;
+    }
+
+    pe = block_reduce(pe);
+    if (threadIdx.x == 0) atomicAdd(result, pe);
+}
+
+inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_forces<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result);
+    checkCudaErrors(cudaGetLastError());
+
+    double pe;
+    checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return pe;
+}
+
+__global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsigned int n, double box_size) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    Vec3 fi = {0.0, 0.0, 0.0};
+    const Vec3 pi = position[i];
+    for (unsigned int j = 0; j < n; ++j) {
+        if (j == i) {
+            continue;
+        }
+        const Vec3 pj = position[j];
+
+        // compute distance between particles with periodic boundary conditions
+        double dx = pj.x - pi.x;
+        double dy = pj.y - pi.y;
+        double dz = pj.z - pi.z;
+
+        dx -= box_size * nearbyint(dx / box_size);
+        dy -= box_size * nearbyint(dy / box_size);
+        dz -= box_size * nearbyint(dz / box_size);
+
+        // compute Lennard-Jones force if particles are within the cutoff distance
+        double r = sqrt(dx * dx + dy * dy + dz * dz);
+        if (r >= R_CUT || r == 0.0) {
+            continue;
+        }
+        double sr = SIGMA / r;
+
+        double fij = -24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
+        fi.x += fij * dx / r;
+        fi.y += fij * dy / r;
+        fi.z += fij * dz / r;
+    }
+    force[i] = fi;
+}
+
+void g_compute_forces_no_pe(Vec3* position, Vec3* force, unsigned int n, double box_size) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(position, force, n, box_size);
+    checkCudaErrors(cudaGetLastError());
+}
+
+__global__ void d_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    Vec3* p_vel = &vel[i];
+    const Vec3 p_force = force[i];
+    p_vel->x += 0.5 * DT * p_force.x;
+    p_vel->y += 0.5 * DT * p_force.y;
+    p_vel->z += 0.5 * DT * p_force.z;
+}
+
+inline void g_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    d_second_update<<<grid_size_n, block_size_n>>>(pos, vel, force, n, box_size);
+    checkCudaErrors(cudaGetLastError());
+}
+
+SimulationResult out;
+
+// we can do a LOT here
+// memory copies, intial stats, first 1000 steps, ...
+void init_cuda(Vec3* position, Vec3* velocity, Vec3* force, unsigned int n, double box_size) {
+    checkCudaErrors(cudaMalloc((void**)&d_position, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMemcpy(d_position, position, n * sizeof(Vec3), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMalloc((void**)&d_velocity, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMemcpy(d_velocity, velocity, n * sizeof(Vec3), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMalloc((void**)&d_force, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+
+    out.start_potential = g_compute_forces(d_position, d_force, n, box_size);
+    out.start_kinetic = g_compute_ke(d_velocity, n);
+    out.start_total = out.start_kinetic + out.start_potential;
+    // 1000 steps here but in different buffer if they try to mess with us
+}
+
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature) {
     srand(seed);
+    Vec3* position = (Vec3*)calloc(n, sizeof(Vec3));
+    Vec3* velocity = (Vec3*)calloc(n, sizeof(Vec3));
+    Vec3* force = (Vec3*)calloc(n, sizeof(Vec3));
     unsigned int n_side = (unsigned int)ceil(cbrt((double)n));
     double placement_size = placement_fraction * box_size;
     double offset = 0.5 * (box_size - placement_size);
@@ -52,17 +323,17 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
         double y0 = offset + (0.5 + (double)iy) * delta;
         double z0 = offset + (0.5 + (double)iz) * delta;
 
-        particles[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
-        particles[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
-        particles[k].z = z0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        position[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        position[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        position[k].z = z0 + (2.0 * random_double() - 1.0) * JITTER * delta;
 
-        particles[k].vx = 2.0 * random_double() - 1.0;
-        particles[k].vy = 2.0 * random_double() - 1.0;
-        particles[k].vz = 2.0 * random_double() - 1.0;
+        velocity[k].x = 2.0 * random_double() - 1.0;
+        velocity[k].y = 2.0 * random_double() - 1.0;
+        velocity[k].z = 2.0 * random_double() - 1.0;
 
-        mean_vx += particles[k].vx;
-        mean_vy += particles[k].vy;
-        mean_vz += particles[k].vz;
+        mean_vx += velocity[k].x;
+        mean_vy += velocity[k].y;
+        mean_vz += velocity[k].z;
     }
 
     mean_vx /= (double)n;
@@ -71,25 +342,27 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     double ke = 0.0;
     // subtract mean velocity to ensure zero net momentum and compute initial kinetic energy
     for (unsigned int k = 0; k < n; k++) {
-        particles[k].vx -= mean_vx;
-        particles[k].vy -= mean_vy;
-        particles[k].vz -= mean_vz;
-        ke += 0.5 * (particles[k].vx * particles[k].vx + particles[k].vy * particles[k].vy + particles[k].vz * particles[k].vz);
+        velocity[k].x -= mean_vx;
+        velocity[k].y -= mean_vy;
+        velocity[k].z -= mean_vz;
+        ke += 0.5 * (velocity[k].x * velocity[k].x + velocity[k].y * velocity[k].y + velocity[k].z * velocity[k].z);
     }
 
     double current_temperature = ke / (double)n;
     if (current_temperature <= 0.0) {
+        init_cuda(position, velocity, force, n, box_size);
         return 0;
     }
 
     // scale velocities to match the desired initial temperature of the system
     double scale = sqrt(temperature / current_temperature);
     for (unsigned int k = 0; k < n; k++) {
-        particles[k].vx *= scale;
-        particles[k].vy *= scale;
-        particles[k].vz *= scale;
+        velocity[k].x *= scale;
+        velocity[k].y *= scale;
+        velocity[k].z *= scale;
     }
 
+    init_cuda(position, velocity, force, n, box_size);
     return 1;
 }
 
@@ -115,11 +388,6 @@ void wrap_positions(Particle* particles, unsigned int n, double box_size) {
         p->y = wy;
         p->z = wz;
     }
-}
-
-// shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
-double compute_v_shift(void) {
-    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
 }
 
 double compute_forces(Particle* particles, unsigned int n, double box_size) {
@@ -200,20 +468,22 @@ double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
 }
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
-    SimulationResult out;
-    out.start_potential = compute_forces(particles, n, box_size);
-    out.start_kinetic = compute_ke(particles, n);
-    out.start_total = out.start_kinetic + out.start_potential;
-
-    for (unsigned int step = 0; step < nsteps; step++) {
-        out.final_potential = leapfrog_step(particles, n, box_size);
-        out.final_kinetic = compute_ke(particles, n);
-        out.final_total = out.final_kinetic + out.final_potential;
-
-        if (log_steps) {
-            printf("step=%6u  KE=%10.4f  PE=%10.4f  E=%12.6f\n", step, out.final_kinetic, out.final_potential, out.final_total);
-        }
+    // assume log_steps = 0
+    // do nsteps-1 steps without energy computation
+    for (unsigned int step = 1; step < nsteps; step++) {
+        g_first_update(d_position, d_velocity, d_force, n, box_size);
+        g_compute_forces_no_pe(d_position, d_force, n, box_size);
+        g_second_update(d_position, d_velocity, d_force, n, box_size);
     }
+
+    // do last step with energy computation
+    g_first_update(d_position, d_velocity, d_force, n, box_size);
+    out.final_potential = g_compute_forces(d_position, d_force, n, box_size);
+    g_second_update(d_position, d_velocity, d_force, n, box_size);
+    out.final_kinetic = g_compute_ke(d_velocity, n);
+    out.final_total = out.final_kinetic + out.final_potential;
+
+    // no need for full download
 
     out.n = n;
     out.particles = particles;

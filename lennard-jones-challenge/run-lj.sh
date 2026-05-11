@@ -6,6 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --gpus=1
+# lahko sta dva
 #SBATCH --nodes=1
 #SBATCH --output=x.log
 #SBATCH --mem=16G

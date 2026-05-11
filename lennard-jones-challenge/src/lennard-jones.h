@@ -19,6 +19,12 @@ extern "C" {
 #define FRAME_DELAY 3
 #define GIF_FILE "simulation.gif"
 
+#include <cuda.h>
+// TODO(perf): vec3a
+#define Vec3 double3
+// TODO(perf): full SoA?
+
+// this type is for backwards compatibility
 typedef struct {
     unsigned int id;
     double x;
