@@ -1,0 +1,5 @@
+nvcc -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp,-Wall lennard-jones.o main.o -o lj.out -lm
+Traceback (most recent call last):
+  File "/d/hpc/home/sg57072/HPC-work/lennard-jones-challenge/./verify.py", line 79, in <module>
+    with open(f"result/blessed/{out}/result.txt") as f:
+FileNotFoundError: [Errno 2] No such file or directory: 'result/blessed/2000_5000/result.txt'

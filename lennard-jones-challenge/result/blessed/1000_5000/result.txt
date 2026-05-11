@@ -1,0 +1,3 @@
+Final KE:   907.8081 | delta: +407.8081
+Final PE: -4233.2542 | delta: -407.8555
+Final E:  -3325.4461 | delta: -0.0474
