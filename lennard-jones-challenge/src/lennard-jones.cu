@@ -118,36 +118,35 @@ inline double g_compute_ke(Vec3* velocity, unsigned int n) {
     return ke;
 }
 
-__global__ void d_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+__global__ void d_first_update(Vec3* positions, Vec3* velocities, Vec3* forces, unsigned int n, double box_size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    Vec3* p_pos = &pos[i];
-    Vec3* p_vel = &vel[i];
-    const Vec3 p_force = force[i];
-    p_vel->x += 0.5 * DT * p_force.x;
-    p_vel->y += 0.5 * DT * p_force.y;
-    p_vel->z += 0.5 * DT * p_force.z;
+    const Vec3 force = forces[i];
+    Vec3 vel = velocities[i];
+    vel.x += 0.5 * DT * force.x;
+    vel.y += 0.5 * DT * force.y;
+    vel.z += 0.5 * DT * force.z;
+    velocities[i] = vel;
 
     // fused wrap_positions
+    Vec3 pos = positions[i];
     // apply periodic boundary conditions to ensure particles stay within the simulation box
-    double wx = fmod(p_pos->x + DT * p_vel->x, box_size);
-    double wy = fmod(p_pos->y + DT * p_vel->y, box_size);
-    double wz = fmod(p_pos->z + DT * p_vel->z, box_size);
+    pos.x = fmod(pos.x + DT * vel.x, box_size);
+    pos.y = fmod(pos.y + DT * vel.y, box_size);
+    pos.z = fmod(pos.z + DT * vel.z, box_size);
 
-    if (wx < 0.0) {
-        wx += box_size;
+    if (pos.x < 0.0) {
+        pos.x += box_size;
     }
-    if (wy < 0.0) {
-        wy += box_size;
+    if (pos.y < 0.0) {
+        pos.y += box_size;
     }
-    if (wz < 0.0) {
-        wz += box_size;
+    if (pos.z < 0.0) {
+        pos.z += box_size;
     }
 
-    p_pos->x = wx;
-    p_pos->y = wy;
-    p_pos->z = wz;
+    positions[i] = pos;
 }
 
 inline void g_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
@@ -158,8 +157,14 @@ inline void g_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, do
 }
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
-__host__ __device__ double compute_v_shift(void) {
-    return 4.0 * EPSILON * (pow(SIGMA / R_CUT, 12.0) - pow(SIGMA / R_CUT, 6.0));
+constexpr double sigma_over_rcut = SIGMA / R_CUT;
+constexpr double sigma_over_rcut_2 = sigma_over_rcut * sigma_over_rcut;
+constexpr double sigma_over_rcut_6 = sigma_over_rcut_2 * sigma_over_rcut_2 * sigma_over_rcut_2;
+constexpr double sigma_over_rcut_12 = sigma_over_rcut_6 * sigma_over_rcut_6;
+constexpr double v_shift = 4.0 * EPSILON * (sigma_over_rcut_12 - sigma_over_rcut_6);
+
+double compute_v_shift() {
+    return v_shift;
 }
 
 __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result) {
@@ -196,7 +201,7 @@ __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int
             fi.y += fij * dy / r;
             fi.z += fij * dz / r;
 
-            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - compute_v_shift();
+            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
             pe += 0.5 * vij;
         }
         force[i] = fi;
@@ -261,21 +266,22 @@ void g_compute_forces_no_pe(Vec3* position, Vec3* force, unsigned int n, double 
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void d_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
+__global__ void d_second_update(Vec3* velocities, Vec3* forces, unsigned int n, double box_size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    Vec3* p_vel = &vel[i];
-    const Vec3 p_force = force[i];
-    p_vel->x += 0.5 * DT * p_force.x;
-    p_vel->y += 0.5 * DT * p_force.y;
-    p_vel->z += 0.5 * DT * p_force.z;
+    Vec3 vel = velocities[i];
+    const Vec3 force = forces[i];
+    vel.x += 0.5 * DT * force.x;
+    vel.y += 0.5 * DT * force.y;
+    vel.z += 0.5 * DT * force.z;
+    velocities[i] = vel;
 }
 
 inline void g_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, double box_size) {
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
-    d_second_update<<<grid_size_n, block_size_n>>>(pos, vel, force, n, box_size);
+    d_second_update<<<grid_size_n, block_size_n>>>(vel, force, n, box_size);
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -397,7 +403,6 @@ double compute_forces(Particle* particles, unsigned int n, double box_size) {
         particles[i].fz = 0.0;
     }
     double pe = 0.0;
-    double v_shift = compute_v_shift();
     for (unsigned int i = 0; i < n; ++i) {
         for (unsigned int j = 0; j < n; ++j) {
             if (j == i) {

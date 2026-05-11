@@ -64,8 +64,8 @@ int main(int argc, char** argv) {
     printf("Final KE: %10.4f | delta: %+.4f\n", result.final_kinetic, result.final_kinetic - result.start_kinetic);
     printf("Final PE: %10.4f | delta: %+.4f\n", result.final_potential, result.final_potential - result.start_potential);
     printf("Final E:  %10.4f | delta: %+.4f\n", result.final_total, result.final_total - result.start_total);
-    printf("Simulation time %d steps: %.3f seconds\n", nsteps, stop - start);
-
+    //printf("Simulation time %d steps: %.3f seconds\n", nsteps, stop - start);
+    printf("Time(full): %f s\n", stop - start);
     free(particles);
     return 0;
 }
