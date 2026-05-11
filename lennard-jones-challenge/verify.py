@@ -40,7 +40,7 @@ if not args.dry_run:
         check=True,
     )
     shutil.rmtree("result/out", ignore_errors=True)
-    configs = [(100, 100)]
+    configs = [(100, 100), (1000, 100)]
     if args.full:
         configs += [
             (1000, 5000),
