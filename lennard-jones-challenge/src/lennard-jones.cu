@@ -167,6 +167,8 @@ double compute_v_shift() {
     return v_shift;
 }
 
+constexpr double rc2 = R_CUT * R_CUT;
+
 __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -190,18 +192,20 @@ __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int
             dz -= box_size * nearbyint(dz / box_size);
 
             // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r = sqrt(dx * dx + dy * dy + dz * dz);
-            if (r >= R_CUT || r == 0.0) {
+            double r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 >= rc2 || r2 == 0.0) {
                 continue;
             }
-            double sr = SIGMA / r;
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
 
-            double fij = -24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-            fi.x += fij * dx / r;
-            fi.y += fij * dy / r;
-            fi.z += fij * dz / r;
+            double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            fi.x += fij * dx;
+            fi.y += fij * dy;
+            fi.z += fij * dz;
 
-            double vij = 4.0 * EPSILON * (pow(sr, 12.0) - pow(sr, 6.0)) - v_shift;
+            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
             pe += 0.5 * vij;
         }
         force[i] = fi;
@@ -245,16 +249,18 @@ __global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsign
         dz -= box_size * nearbyint(dz / box_size);
 
         // compute Lennard-Jones force if particles are within the cutoff distance
-        double r = sqrt(dx * dx + dy * dy + dz * dz);
-        if (r >= R_CUT || r == 0.0) {
+        double r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 >= rc2 || r2 == 0.0) {
             continue;
         }
-        double sr = SIGMA / r;
+        double sr2 = (SIGMA * SIGMA) / r2;
+        double sr6 = sr2 * sr2 * sr2;
+        double sr12 = sr6 * sr6;
 
-        double fij = -24.0 * EPSILON * (2.0 * pow(sr, 12.0) - pow(sr, 6.0)) / r;
-        fi.x += fij * dx / r;
-        fi.y += fij * dy / r;
-        fi.z += fij * dz / r;
+        double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+        fi.x += fij * dx;
+        fi.y += fij * dy;
+        fi.z += fij * dz;
     }
     force[i] = fi;
 }

@@ -19,5 +19,5 @@ module load CUDA
 #make
 #srun ./lj.out
 
-#./run.py --srun
-./verify.py --srun --full
+./run.py --srun
+#./verify.py --srun --full

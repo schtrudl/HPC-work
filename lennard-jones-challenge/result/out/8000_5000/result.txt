@@ -1,3 +1,3 @@
-Final KE:  8251.1032 | delta: +4251.1032
-Final PE: -34901.6123 | delta: -4251.5566
-Final E:  -26650.5090 | delta: -0.4534
+Final KE:  8201.9663 | delta: +4201.9663
+Final PE: -34852.4676 | delta: -4202.4120
+Final E:  -26650.5013 | delta: -0.4457
