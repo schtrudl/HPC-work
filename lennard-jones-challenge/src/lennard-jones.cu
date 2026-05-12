@@ -170,73 +170,13 @@ double compute_v_shift() {
 constexpr double rc2 = R_CUT * R_CUT;
 
 __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result) {
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
 
     double pe = 0.0;
-    if (i < n) {
-        Vec3 fi = {0.0, 0.0, 0.0};
+    Vec3 f = {0.0, 0.0, 0.0};
+    if (i < n && j < n && i != j) {
         const Vec3 pi = position[i];
-        for (unsigned int j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
-            const Vec3 pj = position[j];
-
-            // compute distance between particles with periodic boundary conditions
-            double dx = pj.x - pi.x;
-            double dy = pj.y - pi.y;
-            double dz = pj.z - pi.z;
-
-            dx -= box_size * nearbyint(dx / box_size);
-            dy -= box_size * nearbyint(dy / box_size);
-            dz -= box_size * nearbyint(dz / box_size);
-
-            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
-            double r2 = dx * dx + dy * dy + dz * dz;
-            if (r2 >= rc2 || r2 == 0.0) {
-                continue;
-            }
-            double sr2 = (SIGMA * SIGMA) / r2;
-            double sr6 = sr2 * sr2 * sr2;
-            double sr12 = sr6 * sr6;
-
-            double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-            fi.x += fij * dx;
-            fi.y += fij * dy;
-            fi.z += fij * dz;
-
-            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
-            pe += 0.5 * vij;
-        }
-        force[i] = fi;
-    }
-
-    pe = block_reduce(pe);
-    if (threadIdx.x == 0) atomicAdd(result, pe);
-}
-
-inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
-    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-    d_compute_forces<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result);
-    checkCudaErrors(cudaGetLastError());
-
-    double pe;
-    checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
-    return pe;
-}
-
-__global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsigned int n, double box_size) {
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
-
-    Vec3 fi = {0.0, 0.0, 0.0};
-    const Vec3 pi = position[i];
-    for (unsigned int j = 0; j < n; ++j) {
-        if (j == i) {
-            continue;
-        }
         const Vec3 pj = position[j];
 
         // compute distance between particles with periodic boundary conditions
@@ -248,26 +188,94 @@ __global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsign
         dy -= box_size * nearbyint(dy / box_size);
         dz -= box_size * nearbyint(dz / box_size);
 
-        // compute Lennard-Jones force if particles are within the cutoff distance
+        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
         double r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 >= rc2 || r2 == 0.0) {
-            continue;
-        }
-        double sr2 = (SIGMA * SIGMA) / r2;
-        double sr6 = sr2 * sr2 * sr2;
-        double sr12 = sr6 * sr6;
+        if (r2 < rc2 && r2 != 0.0) {
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
 
-        double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-        fi.x += fij * dx;
-        fi.y += fij * dy;
-        fi.z += fij * dz;
+            double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            f.x += fij * dx;
+            f.y += fij * dy;
+            f.z += fij * dz;
+
+            double vij = 4.0 * EPSILON * (sr12 - sr6) - v_shift;
+            pe = 0.5 * vij;
+        }
     }
-    force[i] = fi;
+
+    f.x = block_reduce(f.x);
+    f.y = block_reduce(f.y);
+    f.z = block_reduce(f.z);
+    pe = block_reduce(pe);
+    if (threadIdx.x == 0) {
+        atomicAdd(&force[i].x, f.x);
+        atomicAdd(&force[i].y, f.y);
+        atomicAdd(&force[i].z, f.z);
+        atomicAdd(result, pe);
+    }
+}
+
+inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size) {
+    dim3 block_size_n(256, 1);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1, (n - 1) / block_size_n.y + 1);
+    checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_forces<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result);
+    checkCudaErrors(cudaGetLastError());
+
+    double pe;
+    checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return pe;
+}
+
+__global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsigned int n, double box_size) {
+    unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+
+    Vec3 f = {0.0, 0.0, 0.0};
+    if (i < n && j < n && i != j) {
+        const Vec3 pi = position[i];
+        const Vec3 pj = position[j];
+
+        // compute distance between particles with periodic boundary conditions
+        double dx = pj.x - pi.x;
+        double dy = pj.y - pi.y;
+        double dz = pj.z - pi.z;
+
+        dx -= box_size * nearbyint(dx / box_size);
+        dy -= box_size * nearbyint(dy / box_size);
+        dz -= box_size * nearbyint(dz / box_size);
+
+        // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+        double r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 < rc2 && r2 != 0.0) {
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
+
+            double fij = -24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            f.x += fij * dx;
+            f.y += fij * dy;
+            f.z += fij * dz;
+        }
+    }
+
+    f.x = block_reduce(f.x);
+    f.y = block_reduce(f.y);
+    f.z = block_reduce(f.z);
+    if (threadIdx.x == 0) {
+        atomicAdd(&force[i].x, f.x);
+        atomicAdd(&force[i].y, f.y);
+        atomicAdd(&force[i].z, f.z);
+    }
 }
 
 void g_compute_forces_no_pe(Vec3* position, Vec3* force, unsigned int n, double box_size) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    dim3 block_size_n(256, 1);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1, (n - 1) / block_size_n.y + 1);
+    checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
     d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(position, force, n, box_size);
     checkCudaErrors(cudaGetLastError());
 }

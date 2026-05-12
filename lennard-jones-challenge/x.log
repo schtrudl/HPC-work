@@ -6,18 +6,18 @@ nvcc -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompi
 -Final KE:  2944.8059 | delta: +1944.8059
 -Final PE: -5448.8807 | delta: -1945.5813
 -Final E:  -2504.0748 | delta: -0.7754
-+Final KE:  3011.6246 | delta: +2011.6246
-+Final PE: -5515.7108 | delta: -2012.4114
-+Final E:  -2504.0862 | delta: -0.7868
++Final KE:  3046.7523 | delta: +2046.7523
++Final PE: -5550.8747 | delta: -2047.5753
++Final E:  -2504.1224 | delta: -0.8230
 --- blessed/8000_5000/result.txt
 +++ out/8000_5000/result.txt
 @@ -1,3 +1,3 @@
 -Final KE:  8176.6135 | delta: +4176.6135
 -Final PE: -34827.1040 | delta: -4177.0483
 -Final E:  -26650.4905 | delta: -0.4348
-+Final KE:  8201.9663 | delta: +4201.9663
-+Final PE: -34852.4676 | delta: -4202.4120
-+Final E:  -26650.5013 | delta: -0.4457
++Final KE:  8304.0910 | delta: +4304.0910
++Final PE: -34954.6304 | delta: -4304.5748
++Final E:  -26650.5394 | delta: -0.4838
 100_100 is OK
 1000_100 is OK
 --- blessed/1000_5000/result.txt
@@ -26,15 +26,15 @@ nvcc -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompi
 -Final KE:   907.8081 | delta: +407.8081
 -Final PE: -4233.2542 | delta: -407.8555
 -Final E:  -3325.4461 | delta: -0.0474
-+Final KE:   914.1003 | delta: +414.1003
-+Final PE: -4239.5424 | delta: -414.1437
-+Final E:  -3325.4422 | delta: -0.0434
++Final KE:   906.6877 | delta: +406.6877
++Final PE: -4232.1211 | delta: -406.7224
++Final E:  -3325.4334 | delta: -0.0347
 --- blessed/4000_5000/result.txt
 +++ out/4000_5000/result.txt
 @@ -1,3 +1,3 @@
 -Final KE:  3938.7139 | delta: +1938.7139
 -Final PE: -17579.9638 | delta: -1938.8675
 -Final E:  -13641.2499 | delta: -0.1536
-+Final KE:  3969.7559 | delta: +1969.7559
-+Final PE: -17611.0827 | delta: -1969.9865
-+Final E:  -13641.3268 | delta: -0.2306
++Final KE:  3942.1703 | delta: +1942.1703
++Final PE: -17583.3787 | delta: -1942.2825
++Final E:  -13641.2085 | delta: -0.1122
