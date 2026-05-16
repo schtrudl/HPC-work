@@ -5,6 +5,7 @@
 #include "gifenc.h"
 #include <mpi.h>
 #include "stdbool.h"
+#include "const_kernel.h"
 
 #ifndef SIZE
     #define SIZE 64
@@ -120,6 +121,17 @@ int main(int argc, char* argv[]) {
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
+        /*
+        for (unsigned int y = 0; y < SIZE; y++) {
+            for (unsigned int x = 0; x < SIZE; x++) {
+                f32 sum = 0;
+                for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
+                    sum += sparse_kernel[k].weight * input((y + sparse_kernel[k].dy + SIZE), (x + sparse_kernel[k].dx + SIZE));
+                }
+                tmp[y * SIZE + x] = sum;
+            }
+        }
+        */
         // Convolution
         for (unsigned int i = 0; i < SIZE; i++) {
             for (unsigned int j = 0; j < SIZE; j++) {
@@ -136,7 +148,7 @@ int main(int argc, char* argv[]) {
         // Evolution
         for (unsigned int i = 0; i < SIZE; i++) {
             for (unsigned int j = 0; j < SIZE; j++) {
-                world[i * SIZE + j] += DT * growth_lenia_poly(tmp[i * SIZE + j]);
+                world[i * SIZE + j] += DT * growth_lenia(tmp[i * SIZE + j]);
                 world[i * SIZE + j] = fminf(1, fmaxf(0, world[i * SIZE + j]));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
                 gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;

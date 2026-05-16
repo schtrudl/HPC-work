@@ -6,3 +6,4 @@ The following have been reloaded with a version change:
 
 mpicc -DSIZE=64 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
 DONE
+   

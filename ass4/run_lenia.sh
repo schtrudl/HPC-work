@@ -4,7 +4,7 @@
 #SBATCH --job-name=lenia
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
-#SBATCH --output=timings_4_poly.log
+#SBATCH --output=timings_5_sparse_kernel.log
 #SBATCH --hint=nomultithread
 #SBATCH --time=10:10:00
 
