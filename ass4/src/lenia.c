@@ -35,10 +35,18 @@ inline fx gauss(const fx x, const fx mu, const fx sigma) {
 }
 
 // Function for growth criteria
-fx growth_lenia(const fx u) {
+inline fx growth_lenia(const fx u) {
     const fx mu = 0.15f;
     const fx sigma = 0.015f;
     return -1 + 2 * gauss(u, mu, sigma);  // Baseline -1, peak +1
+}
+
+// Polynomial approximation of growth_lenia (max error: 1.26e-05)
+inline f32 growth_lenia_poly(const f32 u) {
+    const f32 mu = 0.15f, sigma = 0.015f;
+    if (u < 0.09f || u > 0.21f) return -1.0f;
+    const f32 t = (u - mu) / sigma, t2 = t * t;
+    return ((((((((((1.5164566482e-11f) * t2 + (-1.5024997416e-09f)) * t2 + (6.7570921873e-08f)) * t2 + (-1.8452074685e-06f)) * t2 + (3.4634562942e-05f)) * t2 + (-4.7938982646e-04f)) * t2 + (5.0822995568e-03f)) * t2 + (-4.1438623715e-02f)) * t2 + (2.4978575127e-01f)) * t2 + (-9.9992089585e-01f)) * t2 + (9.9999515209e-01f);
 }
 
 // Function to generate convolution kernel
@@ -128,7 +136,7 @@ int main(int argc, char* argv[]) {
         // Evolution
         for (unsigned int i = 0; i < SIZE; i++) {
             for (unsigned int j = 0; j < SIZE; j++) {
-                world[i * SIZE + j] += DT * growth_lenia(tmp[i * SIZE + j]);
+                world[i * SIZE + j] += DT * growth_lenia_poly(tmp[i * SIZE + j]);
                 world[i * SIZE + j] = fminf(1, fmaxf(0, world[i * SIZE + j]));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
                 gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;

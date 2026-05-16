@@ -23,7 +23,7 @@ args = parser.parse_args()
 
 binary = "lenia"
 if not args.size:
-    args.size = [256, 512, 1024, 2048, 4096]
+    args.size = [128, 256, 512, 1024, 2048, 4096]
 
 timings: dict[int, dict[str, list[float]]] = {}
 # get slurm ntasks
