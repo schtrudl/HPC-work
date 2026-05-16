@@ -19,11 +19,6 @@ parser.add_argument(
     action="append",
     help="Sizes to test (default: 256,512,1024,2048,4096)",
 )
-parser.add_argument(
-    "--srun",
-    action="store_true",
-    help="Use srun to run the program (for cluster execution)",
-)
 args = parser.parse_args()
 
 binary = "lenia"
@@ -31,6 +26,8 @@ if not args.size:
     args.size = [256, 512, 1024, 2048, 4096]
 
 timings: dict[int, dict[str, list[float]]] = {}
+# get slurm ntasks
+SLURM_NTASKS = os.getenv("SLURM_NTASKS") or "1"
 for size in args.size:
     timings[size] = {}
     subprocess.run(
@@ -41,9 +38,7 @@ for size in args.size:
         stderr=subprocess.DEVNULL,
     )
     for i in range(args.n):
-        cmd = [f"./{binary}"]
-        if args.srun:
-            cmd = ["srun"] + cmd
+        cmd = ["mpirun", "-np", SLURM_NTASKS, f"./{binary}"]
         output = subprocess.check_output(cmd).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"

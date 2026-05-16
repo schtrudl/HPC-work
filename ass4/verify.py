@@ -11,11 +11,6 @@ parser.add_argument(
     action="store_true",
     help="bless current images as result",
 )
-parser.add_argument(
-    "--srun",
-    action="store_true",
-    help="Use srun to run the program (for cluster execution)",
-)
 args = parser.parse_args()
 
 binary = "lenia"
@@ -28,9 +23,7 @@ subprocess.run(
     check=True,
     env={"GENERATE_GIF": "1", "SIZE": "64", **os.environ},
 )
-cmd = [f"./{binary}"]
-if args.srun:
-    cmd = ["srun"] + cmd
+cmd = ["mpirun", "-np", "1", f"./{binary}"]
 subprocess.run(
     cmd,
     check=True,

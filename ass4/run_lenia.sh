@@ -10,11 +10,9 @@
 #Load MPI module
 module load OpenMPI
 
-#Build
-make
 
-#Run
 #mpirun -np $SLURM_NTASKS ./lenia
-module load FFMPEG
-./verify.py lenia
+#./run.py
+module load FFmpeg
+./verify.py
 
