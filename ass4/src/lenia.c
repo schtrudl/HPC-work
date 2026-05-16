@@ -4,6 +4,7 @@
 #include "orbium.h"
 #include "gifenc.h"
 #include <mpi.h>
+#include "stdbool.h"
 
 #ifndef SIZE
     #define SIZE 64
@@ -77,7 +78,8 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &myid);  // process ID
     MPI_Comm_size(MPI_COMM_WORLD, &procs);  // number of processes involved in communication
     MPI_Get_processor_name(node_name, &name_len);  // compute node name
-    printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
+    const bool master = (myid == 0);
+    //printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
 
 #ifdef GENERATE_GIF
     ge_GIF* gif = ge_new_gif(
@@ -137,7 +139,9 @@ int main(int argc, char* argv[]) {
 #endif
     }
     const f64 stop = MPI_Wtime();
-    printf("Time(full): %f s\n", stop - start);
+    if (master) {
+        printf("Time(full): %f s\n", stop - start);
+    }
 #ifdef GENERATE_GIF
     ge_close_gif(gif);
 #endif
