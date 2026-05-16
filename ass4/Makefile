@@ -8,9 +8,8 @@ endif
 
 all: lenia
 
-# -ffast-math
 lenia:
-	mpicc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native --openmp ./src/lenia.c -o lenia -lm
+	mpicc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
 
 clean:
 	rm -f lenia

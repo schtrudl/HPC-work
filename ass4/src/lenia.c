@@ -30,21 +30,22 @@ struct orbium_coo {
 
 // Function to calculate Gaussian
 inline fx gauss(const fx x, const fx mu, const fx sigma) {
-    return exp(-0.5 * pow((x - mu) / sigma, 2));
+    const fx z = (x - mu) / sigma;
+    return expf(-0.5f * z * z);
 }
 
 // Function for growth criteria
 fx growth_lenia(const fx u) {
-    const fx mu = 0.15;
-    const fx sigma = 0.015;
+    const fx mu = 0.15f;
+    const fx sigma = 0.015f;
     return -1 + 2 * gauss(u, mu, sigma);  // Baseline -1, peak +1
 }
 
 // Function to generate convolution kernel
 fx* generate_kernel(fx* const K, const unsigned int size) {
     // Construct ring convolution filter
-    const fx mu = 0.5;
-    const fx sigma = 0.15;
+    const fx mu = 0.5f;
+    const fx sigma = 0.15f;
     const int r = size / 2;
     fx sum = 0;
 
@@ -128,7 +129,7 @@ int main(int argc, char* argv[]) {
         for (unsigned int i = 0; i < SIZE; i++) {
             for (unsigned int j = 0; j < SIZE; j++) {
                 world[i * SIZE + j] += DT * growth_lenia(tmp[i * SIZE + j]);
-                world[i * SIZE + j] = fmin(1, fmax(0, world[i * SIZE + j]));  // Clip between 0 and 1
+                world[i * SIZE + j] = fminf(1, fmaxf(0, world[i * SIZE + j]));  // Clip between 0 and 1
 #ifdef GENERATE_GIF
                 gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
 #endif
