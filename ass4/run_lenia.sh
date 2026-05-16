@@ -10,7 +10,6 @@
 #Load MPI module
 module load OpenMPI
 
-
 #mpirun -np $SLURM_NTASKS ./lenia
 #./run.py
 module load FFmpeg

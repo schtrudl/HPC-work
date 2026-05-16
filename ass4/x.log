@@ -5,17 +5,4 @@ The following have been reloaded with a version change:
   3) zlib/1.2.13-GCCcore-13.2.0 => zlib/1.2.13-GCCcore-12.3.0
 
 mpicc -DSIZE=64 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia.c -o lenia -lm
-./src/lenia.c: In function ‘evolve_lenia’:
-./src/lenia.c:95:9: warning: passing argument 4 of ‘ge_new_gif’ discards ‘const’ qualifier from pointer target type [-Wdiscarded-qualifiers]
-   95 |         inferno_pallete, /*pallete*/
-      |         ^~~~~~~~~~~~~~~
-In file included from ./src/lenia.c:5:
-./src/gifenc.h:82:81: note: expected ‘uint8_t *’ {aka ‘unsigned char *’} but argument is of type ‘const uint8_t *’ {aka ‘const unsigned char *’}
-   82 | ge_GIF* ge_new_gif(const char* fname, uint16_t width, uint16_t height, uint8_t* palette, int depth, int bgindex, int loop) {
-      |                                                                        ~~~~~~~~~^~~~~~~
-Traceback (most recent call last):
-  File "/d/hpc/home/sg57072/HPC-work/ass4/./verify.py", line 46, in <module>
-    subprocess.run(
-  File "/usr/lib64/python3.9/subprocess.py", line 528, in run
-    raise CalledProcessError(retcode, process.args,
-subprocess.CalledProcessError: Command '['kompari-cli', 'report', 'result/out', 'result/blessed']' returned non-zero exit status 1.
+DONE

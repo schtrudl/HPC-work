@@ -49,10 +49,11 @@ else:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    if not args.srun:
+    if os.getenv("SLURM_NTASKS") is None:
         subprocess.run(
             ["xdg-open", "report.html"],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+print("DONE")

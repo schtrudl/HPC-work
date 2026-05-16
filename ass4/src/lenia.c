@@ -24,123 +24,46 @@ struct orbium_coo {
 //#define GENERATE_GIF
 
 // For prettier indexing syntax
-#define w(r, c) (w[(r) * w_cols + (c)])
-#define input(r, c) (input[((r) % rows) * cols + ((c) % cols)])
+#define w(r, c) (w[(r) * KERNEL_SIZE + (c)])
+#define input(r, c) (world[((r) % SIZE) * SIZE + ((c) % SIZE)])
 
 // Function to calculate Gaussian
-inline double gauss(double x, double mu, double sigma) {
+inline fx gauss(const fx x, const fx mu, const fx sigma) {
     return exp(-0.5 * pow((x - mu) / sigma, 2));
 }
 
 // Function for growth criteria
-double growth_lenia(double u) {
-    double mu = 0.15;
-    double sigma = 0.015;
+fx growth_lenia(const fx u) {
+    const fx mu = 0.15;
+    const fx sigma = 0.015;
     return -1 + 2 * gauss(u, mu, sigma);  // Baseline -1, peak +1
 }
 
 // Function to generate convolution kernel
-double* generate_kernel(double* K, const unsigned int size) {
+fx* generate_kernel(fx* const K, const unsigned int size) {
     // Construct ring convolution filter
-    double mu = 0.5;
-    double sigma = 0.15;
-    int r = size / 2;
-    double sum = 0;
-    if (K != NULL) {
-        for (int y = -r; y < r; y++) {
-            for (int x = -r; x < r; x++) {
-                double distance = sqrt((1 + x) * (1 + x) + (1 + y) * (1 + y)) / r;
-                K[(y + r) * size + x + r] = gauss(distance, mu, sigma);
-                if (distance > 1) {
-                    K[(y + r) * size + x + r] = 0;  // Cut at d=1
-                }
-                sum += K[(y + r) * size + x + r];
+    const fx mu = 0.5;
+    const fx sigma = 0.15;
+    const int r = size / 2;
+    fx sum = 0;
+
+    for (int y = -r; y < r; y++) {
+        for (int x = -r; x < r; x++) {
+            const fx distance = sqrt((1 + x) * (1 + x) + (1 + y) * (1 + y)) / r;
+            K[(y + r) * size + x + r] = gauss(distance, mu, sigma);
+            if (distance > 1) {
+                K[(y + r) * size + x + r] = 0;  // Cut at d=1
             }
+            sum += K[(y + r) * size + x + r];
         }
-        // Normalize
-        for (unsigned int y = 0; y < size; y++) {
-            for (unsigned int x = 0; x < size; x++) {
-                K[y * size + x] /= sum;
-            }
+    }
+    // Normalize
+    for (unsigned int y = 0; y < size; y++) {
+        for (unsigned int x = 0; x < size; x++) {
+            K[y * size + x] /= sum;
         }
     }
     return K;
-}
-
-// Function to perform convolution on input using kernel w
-inline double* convolve2d(double* result, const double* input, const double* w, const unsigned int rows, const unsigned int cols, const unsigned int w_rows, const unsigned int w_cols) {
-    if (result != NULL && input != NULL && w != NULL) {
-        for (unsigned int i = 0; i < rows; i++) {
-            for (unsigned int j = 0; j < cols; j++) {
-                double sum = 0;
-                for (int ki = w_rows - 1, kri = 0; ki >= 0; ki--, kri++) {
-                    for (int kj = w_cols - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        sum += w(ki, kj) * input((i - w_rows / 2 + rows + kri), (j - w_cols / 2 + cols + kcj));
-                    }
-                }
-                result[i * cols + j] = sum;
-            }
-        }
-    }
-    return result;
-}
-
-// Function to evolve Lenia
-double* evolve_lenia(const unsigned int rows, const unsigned int cols, const unsigned int steps, const double dt, const unsigned int kernel_size, const struct orbium_coo* orbiums, const unsigned int num_orbiums) {
-#ifdef GENERATE_GIF
-    ge_GIF* gif = ge_new_gif(
-        "lenia.gif", /* file name */
-        cols,
-        rows, /* canvas size */
-        inferno_pallete, /*pallete*/
-        8, /* palette depth == log2(# of colors) */
-        -1, /* no transparency */
-        0 /* infinite loop */
-    );
-#endif
-
-    // Allocate memory
-    double* w = (double*)calloc(kernel_size * kernel_size, sizeof(double));
-    double* world = (double*)calloc(rows * cols, sizeof(double));
-    double* tmp = (double*)calloc(rows * cols, sizeof(double));
-
-    // Generate convolution kernel
-    w = generate_kernel(w, kernel_size);
-
-    // Place orbiums
-    for (unsigned int o = 0; o < num_orbiums; o++) {
-        world = place_orbium(world, rows, cols, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
-    }
-
-    f64 start = MPI_Wtime();
-
-    // Lenia Simulation
-    for (unsigned int step = 0; step < steps; step++) {
-        // Convolution
-        tmp = convolve2d(tmp, world, w, rows, cols, kernel_size, kernel_size);
-
-        // Evolution
-        for (unsigned int i = 0; i < rows; i++) {
-            for (unsigned int j = 0; j < cols; j++) {
-                world[i * rows + j] += dt * growth_lenia(tmp[i * rows + j]);
-                world[i * rows + j] = fmin(1, fmax(0, world[i * rows + j]));  // Clip between 0 and 1
-#ifdef GENERATE_GIF
-                gif->frame[i * rows + j] = world[i * rows + j] * 255;
-#endif
-            }
-        }
-#ifdef GENERATE_GIF
-        ge_add_frame(gif, 5);
-#endif
-    }
-    f64 stop = MPI_Wtime();
-    printf("Time(full): %f s\n", stop - start);
-#ifdef GENERATE_GIF
-    ge_close_gif(gif);
-#endif
-    free(w);
-    free(tmp);
-    return world;
 }
 
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
@@ -156,8 +79,71 @@ int main(int argc, char* argv[]) {
     MPI_Get_processor_name(node_name, &name_len);  // compute node name
     printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
 
-    double* world = evolve_lenia(SIZE, SIZE, NUM_STEPS, DT, KERNEL_SIZE, orbiums, NUM_ORBIUMS);
-    free(world);
+#ifdef GENERATE_GIF
+    ge_GIF* gif = ge_new_gif(
+        "lenia.gif", /* file name */
+        SIZE,
+        SIZE, /* canvas size */
+        (uint8_t*)inferno_pallete, /*pallete*/
+        8, /* palette depth == log2(# of colors) */
+        -1, /* no transparency */
+        0 /* infinite loop */
+    );
+#endif
+
+    // Allocate memory
+    fx* const k = (fx*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(fx));
+    fx* const world = (fx*)calloc(SIZE * SIZE, sizeof(fx));
+    fx* const tmp = (fx*)calloc(SIZE * SIZE, sizeof(fx));
+
+    // Generate convolution kernel
+    generate_kernel(k, KERNEL_SIZE);
+    const fx* const w = k;
+
+    // Place orbiums
+    for (unsigned int o = 0; o < NUM_ORBIUMS; o++) {
+        place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
+    }
+
+    const f64 start = MPI_Wtime();
+
+    // Lenia Simulation
+    for (unsigned int step = 0; step < NUM_STEPS; step++) {
+        // Convolution
+        for (unsigned int i = 0; i < SIZE; i++) {
+            for (unsigned int j = 0; j < SIZE; j++) {
+                fx sum = 0;
+                for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
+                    for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
+                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+                    }
+                }
+                tmp[i * SIZE + j] = sum;
+            }
+        }
+
+        // Evolution
+        for (unsigned int i = 0; i < SIZE; i++) {
+            for (unsigned int j = 0; j < SIZE; j++) {
+                world[i * SIZE + j] += DT * growth_lenia(tmp[i * SIZE + j]);
+                world[i * SIZE + j] = fmin(1, fmax(0, world[i * SIZE + j]));  // Clip between 0 and 1
+#ifdef GENERATE_GIF
+                gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
+#endif
+            }
+        }
+#ifdef GENERATE_GIF
+        ge_add_frame(gif, 5);
+#endif
+    }
+    const f64 stop = MPI_Wtime();
+    printf("Time(full): %f s\n", stop - start);
+#ifdef GENERATE_GIF
+    ge_close_gif(gif);
+#endif
     MPI_Finalize();
+    free(k);
+    free(tmp);
+    free(world);
     return 0;
 }
