@@ -5,6 +5,15 @@
 #include "gifenc.h"
 #include <mpi.h>
 
+#ifndef SIZE
+    #define SIZE 64
+#endif
+
+#define NUM_STEPS 100
+#define DT 0.1
+#define KERNEL_SIZE 26
+#define NUM_ORBIUMS 2
+
 struct orbium_coo {
     int row;
     int col;
@@ -103,6 +112,8 @@ double* evolve_lenia(const unsigned int rows, const unsigned int cols, const uns
         world = place_orbium(world, rows, cols, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
+    f64 start = MPI_Wtime();
+
     // Lenia Simulation
     for (unsigned int step = 0; step < steps; step++) {
         // Convolution
@@ -122,6 +133,8 @@ double* evolve_lenia(const unsigned int rows, const unsigned int cols, const uns
         ge_add_frame(gif, 5);
 #endif
     }
+    f64 stop = MPI_Wtime();
+    printf("Time(full): %f s\n", stop - start);
 #ifdef GENERATE_GIF
     ge_close_gif(gif);
 #endif
@@ -130,13 +143,7 @@ double* evolve_lenia(const unsigned int rows, const unsigned int cols, const uns
     return world;
 }
 
-#define N 128
-#define NUM_STEPS 100
-#define DT 0.1
-#define KERNEL_SIZE 26
-#define NUM_ORBIUMS 2
-
-struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, N / 3, 0}, {N / 3, 0, 180}};
+struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
 
 int main(int argc, char* argv[]) {
     int myid, procs;
@@ -149,10 +156,7 @@ int main(int argc, char* argv[]) {
     MPI_Get_processor_name(node_name, &name_len);  // compute node name
     printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
 
-    double start = MPI_Wtime();
-    double* world = evolve_lenia(N, N, NUM_STEPS, DT, KERNEL_SIZE, orbiums, NUM_ORBIUMS);
-    double stop = MPI_Wtime();
-    printf("Execution time: %.3f\n", stop - start);
+    double* world = evolve_lenia(SIZE, SIZE, NUM_STEPS, DT, KERNEL_SIZE, orbiums, NUM_ORBIUMS);
     free(world);
     MPI_Finalize();
     return 0;
