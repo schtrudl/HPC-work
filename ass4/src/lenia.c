@@ -27,7 +27,7 @@ struct orbium_coo {
 
 // For prettier indexing syntax
 #define w(r, c) (w[(r) * KERNEL_SIZE + (c)])
-#define input(r, c) (world[((r) % SIZE) * SIZE + ((c) % SIZE)])
+#define input(r, c) (my_world[((r) % SIZE) * SIZE + ((c) % SIZE)])
 
 // Function to calculate Gaussian
 inline fx gauss(const fx x, const fx mu, const fx sigma) {
@@ -117,10 +117,101 @@ int main(int argc, char* argv[]) {
         place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
+#define HALO KERNEL_SIZE / 2  // Number of halo rows for border exchange
+    const unsigned int my_rows = SIZE / procs;
+    const unsigned int my_start = myid * my_rows;
+    const unsigned int my_end = my_start + my_rows;
+
+#define HALO_SIZE (HALO * SIZE)
+#define MY_WORLD_SIZE (my_rows * SIZE)
+#define MY_WORLD_TOTAL_SIZE (HALO_SIZE + MY_WORLD_SIZE + HALO_SIZE)
+    fx* my_world_top_halo = (fx*)malloc((HALO_SIZE + MY_WORLD_SIZE + HALO_SIZE) * sizeof(fx));
+    // fx* my_world_top_halo = &world[(SIZE + my_start - HALO) % SIZE * SIZE];
+    fx* my_world = &my_world_top_halo[HALO_SIZE];
+    fx* my_world_bottom_halo = &my_world_top_halo[HALO_SIZE + MY_WORLD_SIZE];
+    // world is properly initialized with orbiums so we could do just local copy
+    // MPI_Scatter(world, my_rows * SIZE, MPI_FLOAT, my_world, my_rows * SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
+
     const f64 start = MPI_Wtime();
 
     // Lenia Simulation
     for (unsigned int step = 0; step < NUM_STEPS; step++) {
+        // exchange borders with neighboring processes
+        if (my_rows >= HALO) {
+            // send top row to previous process
+            MPI_Sendrecv(
+                // send:
+                my_world,
+                HALO_SIZE,
+                MPI_FLOAT,
+                (myid + procs - 1) % procs,
+                0,
+                // recv:
+                my_world_bottom_halo,
+                HALO_SIZE,
+                MPI_FLOAT,
+                (myid + 1) % procs,
+                0,
+                MPI_COMM_WORLD,
+                MPI_STATUSES_IGNORE);
+            // send bottom row to next process
+            MPI_Sendrecv(
+                // send:
+                my_world + (my_rows - HALO) * SIZE,
+                HALO_SIZE,
+                MPI_FLOAT,
+                (myid + 1) % procs,
+                1,
+                // recv:
+                my_world_top_halo,
+                HALO_SIZE,
+                MPI_FLOAT,
+                (myid + procs - 1) % procs,
+                1,
+                MPI_COMM_WORLD,
+                MPI_STATUSES_IGNORE);
+        } else {  // our world is smaller than HALO so we need data from more neighbors
+            int needs = HALO;
+            int process_offset = 1;
+            while (needs > 0) {
+                int x_rows = (needs < my_rows) ? needs : my_rows;  // min(needs, my_rows)
+                // send top x_rows to previous process
+                MPI_Sendrecv(
+                    // send:
+                    my_world,
+                    x_rows * SIZE,
+                    MPI_FLOAT,
+                    (myid + procs - process_offset) % procs,
+                    process_offset * 100,
+                    // recv:
+                    my_world_bottom_halo + (process_offset - 1) * my_rows * SIZE,
+                    x_rows * SIZE,
+                    MPI_FLOAT,
+                    (myid + process_offset) % procs,
+                    process_offset * 100,
+                    MPI_COMM_WORLD,
+                    MPI_STATUSES_IGNORE);
+                // send bottom row to next process
+                MPI_Sendrecv(
+                    // send:
+                    my_world + (my_rows - x_rows) * SIZE,
+                    x_rows * SIZE,
+                    MPI_FLOAT,
+                    (myid + process_offset) % procs,
+                    process_offset * 10000,
+                    // recv:
+                    my_world_top_halo + (process_offset - 1) * my_rows * SIZE,
+                    x_rows * SIZE,
+                    MPI_FLOAT,
+                    (myid + procs - process_offset) % procs,
+                    process_offset * 10000,
+                    MPI_COMM_WORLD,
+                    MPI_STATUSES_IGNORE);
+                needs -= x_rows;
+                process_offset++;
+            }
+        }
+
         /*
         for (unsigned int y = 0; y < SIZE; y++) {
             for (unsigned int x = 0; x < SIZE; x++) {
@@ -133,29 +224,30 @@ int main(int argc, char* argv[]) {
         }
         */
         // Convolution
-        for (unsigned int i = 0; i < SIZE; i++) {
-            for (unsigned int j = 0; j < SIZE; j++) {
+        for (unsigned int y = 0; y < my_rows; y++) {
+            for (unsigned int x = 0; x < SIZE; x++) {
                 fx sum = 0;
                 for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
                     for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        sum += w(ki, kj) * input((i - KERNEL_SIZE / 2 + SIZE + kri), (j - KERNEL_SIZE / 2 + SIZE + kcj));
+                        int r = (y - KERNEL_SIZE / 2 + SIZE + kri);
+                        int c = (x - KERNEL_SIZE / 2 + SIZE + kcj);
+                        sum += w(ki, kj) * my_world_top_halo[((r) % MY_WORLD_TOTAL_SIZE) * MY_WORLD_TOTAL_SIZE + ((c) % SIZE)];
                     }
                 }
-                tmp[i * SIZE + j] = sum;
+                tmp[y * SIZE + x] = sum;
             }
         }
 
         // Evolution
-        for (unsigned int i = 0; i < SIZE; i++) {
-            for (unsigned int j = 0; j < SIZE; j++) {
-                world[i * SIZE + j] += DT * growth_lenia(tmp[i * SIZE + j]);
-                world[i * SIZE + j] = fminf(1, fmaxf(0, world[i * SIZE + j]));  // Clip between 0 and 1
-#ifdef GENERATE_GIF
-                gif->frame[i * SIZE + j] = world[i * SIZE + j] * 255;
-#endif
+        for (unsigned int y = 0; y < my_rows; y++) {
+            for (unsigned int x = 0; x < SIZE; x++) {
+                my_world[y * SIZE + x] += DT * growth_lenia(tmp[y * SIZE + x]);
+                my_world[y * SIZE + x] = fminf(1, fmaxf(0, my_world[y * SIZE + x]));  // Clip between 0 and 1
             }
         }
 #ifdef GENERATE_GIF
+        // get all results directly into gif->frame of master
+        MPI_Gather(my_world, SIZE * SIZE, MPI_FLOAT, gif->frame, SIZE * SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
         ge_add_frame(gif, 5);
 #endif
     }
