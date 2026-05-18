@@ -18,7 +18,7 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-binary = "lenia-ref"
+binary = "lenia"
 
 if not args.size:
     args.size = [64, 128, 256, 512, 1024, 2048]

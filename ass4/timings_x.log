@@ -4,10 +4,10 @@ The following have been reloaded with a version change:
   2) libpciaccess/0.17-GCCcore-13.2.0 => libpciaccess/0.17-GCCcore-12.3.0
   3) zlib/1.2.13-GCCcore-13.2.0 => zlib/1.2.13-GCCcore-12.3.0
 
-mpicc -DSIZE=64 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
-mpicc -DSIZE=128 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
-mpicc -DSIZE=256 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
-mpicc -DSIZE=512 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
-mpicc -DSIZE=1024 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
-mpicc -DSIZE=2048 -DGENERATE_GIF -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref -lm
+mpicc -DSIZE=64 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
+mpicc -DSIZE=128 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
+mpicc -DSIZE=256 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
+mpicc -DSIZE=512 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
+mpicc -DSIZE=1024 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
+mpicc -DSIZE=2048 -DGENERATE_GIF -O3 -march=native -ffast-math --openmp ./src/lenia.c -o lenia -lm
 DONE
