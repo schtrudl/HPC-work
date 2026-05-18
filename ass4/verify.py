@@ -21,7 +21,7 @@ args = parser.parse_args()
 binary = "lenia-ref"
 
 if not args.size:
-    args.size = [64, 128, 256, 512, 1024, 2048, 4096]
+    args.size = [64, 128, 256, 512, 1024, 2048]
 
 shutil.rmtree("result/out", ignore_errors=True)
 os.makedirs("result/out", exist_ok=True)
@@ -98,7 +98,7 @@ if args.bless:
     shutil.copytree("result/out", "result/blessed", dirs_exist_ok=True)
 else:
     subprocess.run(
-        ["kompari-cli", "report", "result/out/64", "result/blessed"],
+        ["kompari-cli", "report", "result/out", "result/blessed"],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
