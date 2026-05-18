@@ -27,7 +27,6 @@ shutil.rmtree("result/out", ignore_errors=True)
 os.makedirs("result/out", exist_ok=True)
 
 for size in args.size:
-
     if os.path.exists(binary):
         os.remove(binary)
 
@@ -49,7 +48,46 @@ for size in args.size:
     os.makedirs(f"result/out/{size}", exist_ok=True)
     # exctract first, middle and last frame from lenia.gif
     subprocess.run(
-        ["ffmpeg", "-i", "lenia.gif", "-vf", "select='eq(n,0)+eq(n,50)+eq(n,99)'", "-vsync", "0", f"result/out/{size}/%d.png"],
+        [
+            "ffmpeg",
+            "-i",
+            "lenia.gif",
+            "-vsync",
+            "0",
+            "-vf",
+            "select='eq(n,0)'",
+            f"result/out/{size}/1.png",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-i",
+            "lenia.gif",
+            "-vsync",
+            "0",
+            "-vf",
+            "select='eq(n,49)'",
+            f"result/out/{size}/50.png",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-i",
+            "lenia.gif",
+            "-vsync",
+            "0",
+            "-vf",
+            "select='eq(n,99)'",
+            f"result/out/{size}/100.png",
+        ],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
