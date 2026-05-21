@@ -15,5 +15,5 @@ module load OpenMPI
 #mpirun -np $SLURM_NTASKS ./lenia
 #./run.py -n 3
 module load FFmpeg
-./verify.py
+./verify.py --binary lenia-mp
 
