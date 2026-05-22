@@ -128,6 +128,8 @@ static inline void exchange_halo() {
     } else {  // our world is smaller than HALO so we need data from more neighbors
         int needs = HALO;
         int process_offset = 1;
+        int bottom_filled = 0;
+        int top_filled = HALO;
         while (needs > 0) {
             int x_rows = (needs < my_rows) ? needs : my_rows;  // min(needs, my_rows)
             // send top x_rows to previous process
@@ -139,7 +141,7 @@ static inline void exchange_halo() {
                 (myid + procs - process_offset) % procs,
                 process_offset * 100,
                 // recv:
-                my_world_bottom_halo + (process_offset - 1) * my_rows * SIZE,
+                my_world_bottom_halo + bottom_filled * SIZE,
                 x_rows * SIZE,
                 MPI_FLOAT,
                 (myid + process_offset) % procs,
@@ -155,13 +157,15 @@ static inline void exchange_halo() {
                 (myid + process_offset) % procs,
                 process_offset * 10000,
                 // recv:
-                my_world_top_halo + (process_offset - 1) * my_rows * SIZE,
+                my_world_top_halo + (top_filled - x_rows) * SIZE,
                 x_rows * SIZE,
                 MPI_FLOAT,
                 (myid + procs - process_offset) % procs,
                 process_offset * 10000,
                 MPI_COMM_WORLD,
                 MPI_STATUSES_IGNORE);
+            bottom_filled += x_rows;
+            top_filled -= x_rows;
             needs -= x_rows;
             process_offset++;
         }

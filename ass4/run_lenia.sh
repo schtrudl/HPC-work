@@ -2,11 +2,11 @@
 
 #SBATCH --reservation=fri
 #SBATCH --job-name=lenia
-#SBATCH --ntasks-per-node=2
+#SBATCH --ntasks-per-node=32
 #SBATCH --nodes=1
 #SBATCH --output=timings_x.log
 #SBATCH --hint=nomultithread
-#SBATCH --mem=0
+#SBATCH --mem-per-cpu=4G
 #SBATCH --time=10:10:00
 
 #Load MPI module

@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import argparse
+import shlex
 from pathlib import Path
 import time
 
@@ -33,6 +34,17 @@ in_slurm = os.getenv("SLURM_NTASKS") is not None
 master = not in_slurm or os.getenv("SLURM_PROCID") == "0"
 SLURM_NTASKS = os.getenv("SLURM_NTASKS") or "1"
 
+
+def run_ffmpeg(ffmpeg_args, quiet=True):
+    stdout = subprocess.DEVNULL if quiet else None
+    stderr = subprocess.DEVNULL if quiet else None
+    if in_slurm:
+        # `module` is a shell command; run it together with ffmpeg in a login shell.
+        cmd = "module load FFmpeg && ffmpeg " + " ".join(shlex.quote(x) for x in ffmpeg_args)
+        subprocess.run(["bash", "-lc", cmd], check=True, stdout=stdout, stderr=stderr)
+    else:
+        subprocess.run(["ffmpeg", *ffmpeg_args], check=True, stdout=stdout, stderr=stderr)
+
 if master:
     shutil.rmtree("result/out", ignore_errors=True)
     os.makedirs("result/out", exist_ok=True)
@@ -59,17 +71,15 @@ for size in args.size:
     subprocess.run(
         cmd,
         check=True,
-        #stdout=subprocess.DEVNULL,
-        #stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     if master:
         token.unlink()
-        ffmpeg = "/cvmfs/sling.si/modules/el7/software/FFmpeg/6.0-GCCcore-12.3.0/bin/ffmpeg" if in_slurm else "ffmpeg"
         os.makedirs(f"result/out/{size}", exist_ok=True)
         # exctract first, middle and last frame from lenia.gif
-        subprocess.run(
+        run_ffmpeg(
             [
-                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",
@@ -77,14 +87,10 @@ for size in args.size:
                 "-vf",
                 "select='eq(n,0)'",
                 f"result/out/{size}/1.png",
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ]
         )
-        subprocess.run(
+        run_ffmpeg(
             [
-                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",
@@ -93,13 +99,9 @@ for size in args.size:
                 "select='eq(n,49)'",
                 f"result/out/{size}/50.png",
             ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
-        subprocess.run(
+        run_ffmpeg(
             [
-                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",
@@ -108,9 +110,6 @@ for size in args.size:
                 "select='eq(n,99)'",
                 f"result/out/{size}/100.png",
             ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
         shutil.move("lenia.gif", f"result/out/{size}/lenia.gif")
 
