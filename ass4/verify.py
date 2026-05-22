@@ -55,7 +55,7 @@ for size in args.size:
     else:
         while not token.exists():
             time.sleep(0.1)
-    cmd = ["mpirun", "-np", SLURM_NTASKS, f"./{args.binary}"]
+    cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{args.binary}"]
     subprocess.run(
         cmd,
         check=True,
@@ -64,11 +64,12 @@ for size in args.size:
     )
     if master:
         token.unlink()
+        ffmpeg = "/cvmfs/sling.si/modules/el7/software/FFmpeg/6.0-GCCcore-12.3.0/bin/ffmpeg" if in_slurm else "ffmpeg"
         os.makedirs(f"result/out/{size}", exist_ok=True)
         # exctract first, middle and last frame from lenia.gif
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",
@@ -83,7 +84,7 @@ for size in args.size:
         )
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",
@@ -98,7 +99,7 @@ for size in args.size:
         )
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg,
                 "-i",
                 "lenia.gif",
                 "-vsync",

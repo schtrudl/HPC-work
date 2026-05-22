@@ -180,15 +180,18 @@ int main(int argc, char* argv[]) {
     //printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
 
 #ifdef GENERATE_GIF
-    ge_GIF* gif = ge_new_gif(
-        "lenia.gif", /* file name */
-        SIZE,
-        SIZE, /* canvas size */
-        (uint8_t*)inferno_pallete, /*pallete*/
-        8, /* palette depth == log2(# of colors) */
-        -1, /* no transparency */
-        0 /* infinite loop */
-    );
+    ge_GIF* gif = NULL;
+    if (master) {
+        gif = ge_new_gif(
+            "lenia.gif", /* file name */
+            SIZE,
+            SIZE, /* canvas size */
+            (uint8_t*)inferno_pallete, /*pallete*/
+            8, /* palette depth == log2(# of colors) */
+            -1, /* no transparency */
+            0 /* infinite loop */
+        );
+    }
 #endif
 
     // Allocate memory
@@ -211,12 +214,10 @@ int main(int argc, char* argv[]) {
     my_world_top_halo = (fx*)malloc((HALO_SIZE + MY_WORLD_SIZE + HALO_SIZE) * sizeof(fx));
     // fx* my_world_top_halo = &world[(SIZE + my_start - HALO) % SIZE * SIZE];
     my_world = &my_world_top_halo[HALO_SIZE];
-    my_world_bottom_halo = &my_world_top_halo[HALO_SIZE + MY_WORLD_SIZE];
+    my_world_bottom_halo = &my_world[MY_WORLD_SIZE];
     // Distribute initial world rows to all processes
     // XXX: I guess we do not need to count this
-    MPI_Scatter(world, my_rows * SIZE, MPI_FLOAT, my_world, my_rows * SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
-    // poplate halos
-    exchange_halo();
+    MPI_Scatter(world, MY_WORLD_SIZE, MPI_FLOAT, my_world, MY_WORLD_SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
     const f64 start = MPI_Wtime();
 
@@ -258,16 +259,11 @@ int main(int argc, char* argv[]) {
             }
         }
 #ifdef GENERATE_GIF
-        /* Convert local `my_world` floats into bytes and gather bytes into gif->frame on master. */
-        uint8_t* local_frame = (uint8_t*)malloc(my_rows * SIZE * sizeof(uint8_t));
-        for (unsigned int i = 0; i < my_rows * SIZE; i++) {
-            const fx v = my_world[i];
-            const float clipped = fminf(1.0f, fmaxf(0.0f, (float)v));
-            local_frame[i] = (uint8_t)(clipped * 255.0f);
-        }
-        MPI_Gather(local_frame, my_rows * SIZE, MPI_UNSIGNED_CHAR, gif->frame, my_rows * SIZE, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-        free(local_frame);
+        MPI_Gather(my_world, my_rows * SIZE, MPI_FLOAT, world, my_rows * SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
         if (master) {
+            for (unsigned int i = 0; i < SIZE * SIZE; i++) {
+                gif->frame[i] = world[i] * 255;
+            }
             ge_add_frame(gif, 5);
         }
 #endif
@@ -275,10 +271,10 @@ int main(int argc, char* argv[]) {
     const f64 stop = MPI_Wtime();
     if (master) {
         printf("Time(full): %f s\n", stop - start);
-    }
 #ifdef GENERATE_GIF
-    ge_close_gif(gif);
+        ge_close_gif(gif);
 #endif
+    }
     MPI_Finalize();
     free(k);
     free(tmp);
