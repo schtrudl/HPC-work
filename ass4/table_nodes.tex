@@ -1,0 +1,41 @@
+\begin{table}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{1 node}\\
+\begin{tabular}{l|rrrrrrr}
+\hline
+\textbf{Size} & \multicolumn{7}{c}{\textbf{Processes}} \\
+\cline{2-8}
+ & \textbf{1} & \textbf{2} & \textbf{4} & \textbf{8} & \textbf{16} & \textbf{32} & \textbf{64} \\
+\hline
+128 & 0.634 & 0.321 & 0.171 & 0.13 & 0.07 & 0.0394 & \textbf{0.0283} \\
+256 & 2.535 & 1.2930 & 0.656 & 0.38 & 0.24 & 0.145 & \textbf{0.0928} \\
+512 & 10.187 & 5.19 & 2.595 & 1.32 & 0.75 & 0.41 & \textbf{0.30} \\
+1024 & 40.657 & 20.745 & 10.391 & 5.255 & 2.66 & 1.39 & \textbf{0.89} \\
+2048 & 162.9 & 82.95 & 41.50 & 20.80 & 10.46 & 5.31 & \textbf{3.28} \\
+4096 & 665.1 & 338.8 & 169.6 & 85.03 & 42.38 & 21.55 & \textbf{13.25} \\
+\hline
+\end{tabular}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{2 nodes}\\
+\begin{tabular}{l|rrrrrrr}
+\hline
+\textbf{Size} & \multicolumn{7}{c}{\textbf{Processes}} \\
+\cline{2-8}
+ & \textbf{1+1} & \textbf{2+2} & \textbf{4+4} & \textbf{8+8} & \textbf{16+16} & \textbf{32+32} & \textbf{64+64} \\
+\hline
+128 & 0.3373 & 0.181 & 0.102 & 0.094 & \textbf{0.092} & 0.129 & 0.240 \\
+256 & 1.2935 & 0.675 & 0.352 & 0.23 & 0.16 & \textbf{0.132} & 0.144 \\
+512 & 5.133 & 2.623 & 1.325 & 0.77 & 0.42 & 0.29 & \textbf{0.20} \\
+1024 & 20.432 & 10.38 & 5.219 & 2.71 & 1.39 & 0.75 & \textbf{0.53} \\
+2048 & 81.746 & 41.61 & 20.79 & 10.51 & 5.28 & 2.74 & \textbf{1.71} \\
+4096 & 332.99 & 169.18 & 85.0 & 42.8 & 21.21 & 10.90 & \textbf{6.69} \\
+\hline
+\end{tabular}
+\end{minipage}
+\caption{Execution time (seconds).}
+\end{table}

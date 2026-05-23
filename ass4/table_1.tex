@@ -1,0 +1,54 @@
+\begin{table}[H]
+\centering
+%\resizebox{\linewidth}{!}{
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+ & \textbf{256} & \textbf{512} & \textbf{1024} & \textbf{2048} & \textbf{4096} \\
+\hline
+\textbf{baseline} 
+& 4.176
+& 16.902
+& 67.6
+& 271.26
+& 1168.6 \\
+
+\textbf{dense} 
+& 4.043 (1.033x)
+& 16.172 (1.0452x)
+& 64.84 (1.043x)
+& 259.01 (1.0473x)
+& 1060.4 (1.1020x) \\
+
+\textbf{fast math} 
+& 2.521 (1.657x)
+& 10.147 (1.666x)
+& 40.53 (1.669x)
+& 162.51 (1.6692x)
+& 662.1 (1.765x) \\
+
+\textbf{poly} 
+& 2.553 (1.636x)
+& 10.193 (1.658x)
+& 40.79 (1.658x)
+& 163.44 (1.6597x)
+& 663.2 (1.7622x) \\
+
+\textbf{sparse kernel} 
+& 4.977 (0.839x)
+& 20.386 (0.8291x)
+& 81.48 (0.830x)
+& 325.93 (0.8323x)
+& 1304.3 (0.8959x) \\
+
+\textbf{fused} 
+& 2.5560 (1.634x)
+& 10.2605 (1.6473x)
+& 41.08 (1.646x)
+& 164.9 (1.645x)
+& 674 (1.733x) \\
+
+\hline
+\end{tabular}
+%}
+\caption{Time in seconds and speedup relative to baseline (first file). Precision follows stddev.}
+\end{table}
