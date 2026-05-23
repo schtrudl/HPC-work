@@ -1,0 +1,24 @@
+
+The following have been reloaded with a version change:
+  1) GCCcore/12.3.0 => GCCcore/13.2.0
+  2) libpciaccess/0.17-GCCcore-12.3.0 => libpciaccess/0.17-GCCcore-13.2.0
+  3) zlib/1.2.13-GCCcore-12.3.0 => zlib/1.2.13-GCCcore-13.2.0
+
+mpicc -DSIZE=128  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+mpicc -DSIZE=256  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+mpicc -DSIZE=512  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+mpicc -DSIZE=1024  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+mpicc -DSIZE=2048  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+mpicc -DSIZE=4096  -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp -lm
+128:
+  full: 0.6338 s ± 0.0015 s
+256:
+  full: 2.5347 s ± 0.0010 s
+512:
+  full: 10.1868 s ± 0.0030 s
+1024:
+  full: 40.6567 s ± 0.0010 s
+2048:
+  full: 162.9152 s ± 0.1234 s
+4096:
+  full: 665.1220 s ± 0.3938 s

@@ -4,6 +4,7 @@ import os
 import subprocess
 import argparse
 import re
+from pathlib import Path
 
 parser = argparse.ArgumentParser(
     description="This script will run program in selected input n times and extract and compute timing statistics."
@@ -17,28 +18,44 @@ parser.add_argument(
 parser.add_argument(
     "--size",
     action="append",
-    help="Sizes to test (default: 256,512,1024,2048,4096)",
+    help="Sizes to test (default: 128,256,512,1024,2048,4096)",
+)
+parser.add_argument(
+    "--binary",
+    type=str,
+    default="lenia",
+    help="Binary to run (default: lenia)",
 )
 args = parser.parse_args()
 
-binary = "lenia"
 if not args.size:
     args.size = [128, 256, 512, 1024, 2048, 4096]
 
 timings: dict[int, dict[str, list[float]]] = {}
 # get slurm ntasks
 SLURM_NTASKS = os.getenv("SLURM_NTASKS") or "1"
+in_slurm = os.getenv("SLURM_NTASKS") is not None
+master = not in_slurm or os.getenv("SLURM_PROCID") == "0"
 for size in args.size:
     timings[size] = {}
-    subprocess.run(
-        ["make", binary],
-        check=True,
-        env={"SIZE": str(size), **os.environ},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    token = Path(f"{size}.token")
+    if master:
+        if os.path.exists(args.binary):
+            os.remove(args.binary)
+
+        subprocess.run(
+            ["make", args.binary],
+            check=True,
+            env={"SIZE": str(size), **os.environ},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        token.touch()
+    else:
+        while not token.exists():
+            time.sleep(0.1)
     for i in range(args.n):
-        cmd = ["mpirun", "-np", SLURM_NTASKS, f"./{binary}"]
+        cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{args.binary}"]
         output = subprocess.check_output(cmd).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"
