@@ -4,7 +4,7 @@ import os
 import subprocess
 import argparse
 import re
-from pathlib import Path
+from time import sleep
 
 parser = argparse.ArgumentParser(
     description="This script will run program in selected input n times and extract and compute timing statistics."
@@ -37,12 +37,9 @@ SLURM_NTASKS = os.getenv("SLURM_NTASKS") or "1"
 in_slurm = os.getenv("SLURM_NTASKS") is not None
 master = not in_slurm or os.getenv("SLURM_PROCID") == "0"
 for size in args.size:
+    binary = f"{args.binary}.{size}.bin"
     timings[size] = {}
-    token = Path(f"{size}.token")
     if master:
-        if os.path.exists(args.binary):
-            os.remove(args.binary)
-
         subprocess.run(
             ["make", args.binary],
             check=True,
@@ -50,12 +47,19 @@ for size in args.size:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        token.touch()
     else:
-        while not token.exists():
-            time.sleep(0.1)
+        while not os.path.exists(binary):
+            sleep(0.1)
     for i in range(args.n):
-        cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{args.binary}"]
+        cmd = [
+            "mpirun",
+            "-mca",
+            "pml",
+            "ob1",
+            "-np",
+            f"{SLURM_NTASKS}",
+            f"./{binary}",
+        ]
         output = subprocess.check_output(cmd).decode("utf-8")
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"
@@ -77,3 +81,11 @@ for size, timing in timings.items():
             sum((t - avg_time) ** 2 for t in times_list) / len(times_list)
         ) ** 0.5
         print(f"  {label}: {avg_time:.4f} s ± {std_time:.4f} s")
+
+if master:
+    subprocess.run(
+        ["make", "clean"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )

@@ -40,21 +40,23 @@ def run_ffmpeg(ffmpeg_args, quiet=True):
     stderr = subprocess.DEVNULL if quiet else None
     if in_slurm:
         # `module` is a shell command; run it together with ffmpeg in a login shell.
-        cmd = "module load FFmpeg && ffmpeg " + " ".join(shlex.quote(x) for x in ffmpeg_args)
+        cmd = "module load FFmpeg && ffmpeg " + " ".join(
+            shlex.quote(x) for x in ffmpeg_args
+        )
         subprocess.run(["bash", "-lc", cmd], check=True, stdout=stdout, stderr=stderr)
     else:
-        subprocess.run(["ffmpeg", *ffmpeg_args], check=True, stdout=stdout, stderr=stderr)
+        subprocess.run(
+            ["ffmpeg", *ffmpeg_args], check=True, stdout=stdout, stderr=stderr
+        )
+
 
 if master:
     shutil.rmtree("result/out", ignore_errors=True)
     os.makedirs("result/out", exist_ok=True)
 
 for size in args.size:
-    token = Path(f"{size}.token")
+    binary = f"{args.binary}.{size}.bin"
     if master:
-        if os.path.exists(args.binary):
-            os.remove(args.binary)
-
         if os.path.exists("lenia.gif"):
             os.remove("lenia.gif")
 
@@ -63,11 +65,10 @@ for size in args.size:
             check=True,
             env={"GENERATE_GIF": "1", "SIZE": str(size), **os.environ},
         )
-        token.touch()
     else:
-        while not token.exists():
+        while not os.path.exists(binary):
             time.sleep(0.1)
-    cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{args.binary}"]
+    cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{binary}"]
     subprocess.run(
         cmd,
         check=True,
@@ -75,7 +76,6 @@ for size in args.size:
         stderr=subprocess.DEVNULL,
     )
     if master:
-        token.unlink()
         os.makedirs(f"result/out/{size}", exist_ok=True)
         # exctract first, middle and last frame from lenia.gif
         run_ffmpeg(
@@ -114,6 +114,12 @@ for size in args.size:
         shutil.move("lenia.gif", f"result/out/{size}/lenia.gif")
 
 if master:
+    subprocess.run(
+        ["make", "clean"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     if args.bless:
         shutil.copytree("result/out", "result/blessed", dirs_exist_ok=True)
     else:
