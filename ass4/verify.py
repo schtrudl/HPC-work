@@ -26,6 +26,12 @@ parser.add_argument(
     default="lenia",
     help="Binary to run (default: lenia)",
 )
+parser.add_argument(
+    "-np",
+    type=int,
+    default=1,
+    help="Number of processes to run (default: 1)",
+)
 args = parser.parse_args()
 
 if not args.size:
@@ -33,7 +39,8 @@ if not args.size:
 
 in_slurm = os.getenv("SLURM_NTASKS") is not None
 master = not in_slurm or os.getenv("SLURM_PROCID") == "0"
-SLURM_NTASKS = os.getenv("SLURM_NTASKS") or "1"
+SLURM_NTASKS = os.getenv("SLURM_NTASKS") or args.np
+SLURM_NTASKS = int(SLURM_NTASKS)
 
 
 def run_ffmpeg(ffmpeg_args, quiet=True):
@@ -69,13 +76,20 @@ for size in args.size:
     else:
         while not os.path.exists(binary):
             time.sleep(0.1)
-    cmd = ["mpirun", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{binary}"]
-    subprocess.run(
-        cmd,
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    cmd = ["mpirun", "--oversubscribe", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{binary}"]
+    if not in_slurm and SLURM_NTASKS != 1:
+        print(f"Spawning {SLURM_NTASKS} processes with mpirun.")
+        procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(SLURM_NTASKS)]
+        for p in procs:
+            if p.wait() != 0:
+                raise subprocess.CalledProcessError(p.returncode, cmd)
+    else:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     if master:
         os.makedirs(f"result/out/{size}", exist_ok=True)
         # exctract first, middle and last frame from lenia.gif
