@@ -11,7 +11,6 @@
     #define SIZE 64
 #endif
 
-// prbly should be multiple of two
 #ifndef COMPUTE_HALO
     #define COMPUTE_HALO 8
 #endif
@@ -83,7 +82,7 @@ fx* generate_kernel(fx* const K, const unsigned int size) {
 
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
 
-#define HALO KERNEL_SIZE / 2  // Number of halo rows for border exchange
+#define HALO (KERNEL_SIZE / 2)  // Number of halo rows for border exchange
 #define HALO_SIZE (HALO * SIZE)
 #define COMPUTE_HALO_SIZE (COMPUTE_HALO * SIZE)
 #define EXCHANGED_ROWS (HALO + COMPUTE_HALO)
@@ -251,8 +250,8 @@ int main(int argc, char* argv[]) {
                 fx sum = 0;
                 for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
                     for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        int r = (y + kri);
-                        int c = (x + kcj);
+                        int r = (int)y + (int)step_offset + kri;
+                        int c = (int)x - HALO + SIZE + kcj;
                         sum += w(ki, kj) * my_world_top_halo[(r * SIZE) + ((c) % SIZE)];
                     }
                 }
