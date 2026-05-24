@@ -230,11 +230,15 @@ int main(int argc, char* argv[]) {
         exchange_halo();
 
         /*
-        for (unsigned int y = 0; y < SIZE; y++) {
+        // Convolution with sparse kernel over local rows (+ exchanged halos).
+        for (unsigned int y = 0; y < my_rows; y++) {
+            const int y_local = (int)y + HALO;
             for (unsigned int x = 0; x < SIZE; x++) {
                 f32 sum = 0;
-                for (int k = 0; k < NUM_KERNEL_ENTRIES; k++) {
-                    sum += sparse_kernel[k].weight * input((y + sparse_kernel[k].dy + SIZE), (x + sparse_kernel[k].dx + SIZE));
+                for (int ki = 0; ki < NUM_KERNEL_ENTRIES; ki++) {
+                    const int r = y_local + sparse_kernel[ki].dy;
+                    const int c = ((int)x + sparse_kernel[ki].dx + (int)SIZE) % (int)SIZE;
+                    sum += sparse_kernel[ki].weight * my_world_top_halo[r * (int)SIZE + c];
                 }
                 tmp[y * SIZE + x] = sum;
             }
