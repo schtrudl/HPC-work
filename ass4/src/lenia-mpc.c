@@ -220,6 +220,19 @@ int main(int argc, char* argv[]) {
     my_rows = SIZE / procs;
     tmp = (fx*)calloc(MY_WORLD_SIZE + 2 * COMPUTE_HALO_SIZE, sizeof(fx));
 
+    /*
+    HALO
+    COMPUTE_HALO
+    MY_WORLD
+    COMPUTE_HALO
+    HALO
+
+    ends up as
+
+    HALO
+    MY_WORLD
+    HALO
+    */
     my_world_top_halo = (fx*)malloc((MY_WORLD_TOTAL_SIZE) * sizeof(fx));
     // fx* my_world_top_halo = &world[(SIZE + my_start - HALO) % SIZE * SIZE];
     my_world = &my_world_top_halo[EXCHANGED_SIZE];
