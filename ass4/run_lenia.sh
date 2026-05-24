@@ -1,13 +1,14 @@
 #!/bin/bash
 
-#SBATCH --reservation=fri
+##SBATCH --reservation=fri
 #SBATCH --job-name=lenia
 #SBATCH --ntasks-per-node=64
-#SBATCH --nodes=2
-#SBATCH --output=timings_basic_row_2_64.log
+#SBATCH --nodes=4
+#SBATCH --output=timings_basic_row_4_64.log
 #SBATCH --hint=nomultithread
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=10:10:00
+#SBATCH --time=0:30:00
+#SBATCH --nodelist=wn[101-115]
 
 #Load MPI module
 #module load FFmpeg
