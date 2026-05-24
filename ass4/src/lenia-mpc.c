@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
     // Allocate memory
     fx* const k = (fx*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(fx));
     fx* const world = (fx*)calloc(SIZE * SIZE, sizeof(fx));
-    fx* const tmp = (fx*)calloc(SIZE * SIZE, sizeof(fx));
+    fx* tmp;
 
     // Generate convolution kernel
     generate_kernel(k, KERNEL_SIZE);
@@ -219,6 +219,7 @@ int main(int argc, char* argv[]) {
         place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
     my_rows = SIZE / procs;
+    tmp = (fx*)calloc(MY_WORLD_SIZE + 2 * COMPUTE_HALO_SIZE, sizeof(fx));
 
     my_world_top_halo = (fx*)malloc((MY_WORLD_TOTAL_SIZE) * sizeof(fx));
     // fx* my_world_top_halo = &world[(SIZE + my_start - HALO) % SIZE * SIZE];
@@ -240,18 +241,18 @@ int main(int argc, char* argv[]) {
             cached_compute_rows--;
         }
 
-        const unsigned int extra_rows = cached_compute_rows;
-        const unsigned int compute_start = EXCHANGED_ROWS - extra_rows;
-        const unsigned int compute_end = EXCHANGED_ROWS + my_rows + extra_rows;
+        const unsigned int step_offset = COMPUTE_HALO - cached_compute_rows;
+        const unsigned int active_rows = my_rows + 2 * cached_compute_rows;
+        fx* compute_world = &my_world_top_halo[(HALO + step_offset) * SIZE];
 
         // Convolution
-        for (unsigned int y = compute_start; y < compute_end; y++) {
+        for (unsigned int y = 0; y < active_rows; y++) {
             for (unsigned int x = 0; x < SIZE; x++) {
                 fx sum = 0;
                 for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
                     for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
-                        int r = (y - HALO + kri);
-                        int c = (x - HALO + SIZE + kcj);
+                        int r = (y + kri);
+                        int c = (x + kcj);
                         sum += w(ki, kj) * my_world_top_halo[(r * SIZE) + ((c) % SIZE)];
                     }
                 }
@@ -260,10 +261,10 @@ int main(int argc, char* argv[]) {
         }
 
         // Evolution
-        for (unsigned int y = compute_start; y < compute_end; y++) {
+        for (unsigned int y = 0; y < active_rows; y++) {
             for (unsigned int x = 0; x < SIZE; x++) {
-                my_world_top_halo[y * SIZE + x] += DT * growth_lenia(tmp[y * SIZE + x]);
-                my_world_top_halo[y * SIZE + x] = fminf(1, fmaxf(0, my_world_top_halo[y * SIZE + x]));  // Clip between 0 and 1
+                compute_world[y * SIZE + x] += DT * growth_lenia(tmp[y * SIZE + x]);
+                compute_world[y * SIZE + x] = fminf(1, fmaxf(0, compute_world[y * SIZE + x]));  // Clip between 0 and 1
             }
         }
 #ifdef GENERATE_GIF
@@ -286,6 +287,7 @@ int main(int argc, char* argv[]) {
     MPI_Finalize();
     free(k);
     free(tmp);
+    free(my_world_top_halo);
     free(world);
     return 0;
 }
