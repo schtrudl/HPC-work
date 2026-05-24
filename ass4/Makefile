@@ -6,9 +6,9 @@ endif
 
 DEBUG = -fsanitize=address -g
 
-.PHONY: all lenia lenia-ref lenia-mp clean
+.PHONY: all lenia lenia-ref lenia-mp lenia-mpc clean
 
-all: lenia lenia-ref lenia-mp
+all: lenia lenia-ref lenia-mp lenia-mpc
 
 lenia-ref:
 	mpicc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native --openmp ./src/lenia-ref.c -o lenia-ref.$(SIZE).bin -lm
@@ -18,6 +18,9 @@ lenia:
 
 lenia-mp:
 	mpicc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native -ffast-math --openmp ./src/lenia-mp.c -o lenia-mp.$(SIZE).bin -lm
+
+lenia-mpc:
+	mpicc -DSIZE=$(SIZE) $(GIF_FLAG) -O3 -march=native -ffast-math --openmp ./src/lenia-mpc.c -o lenia-mpc.$(SIZE).bin -lm
 
 clean:
 	rm -f *.bin
