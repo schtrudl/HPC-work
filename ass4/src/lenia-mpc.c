@@ -11,12 +11,13 @@
     #define SIZE 64
 #endif
 
-#ifndef COMPUTE_HALO
-    #define COMPUTE_HALO 8
-#endif
 #define NUM_STEPS 100
 #define DT 0.1
 #define KERNEL_SIZE 26
+// this is only useful to be multiple of HALO
+#ifndef COMPUTE_HALO
+    #define COMPUTE_HALO HALO
+#endif
 #define NUM_ORBIUMS 2
 
 struct orbium_coo {
@@ -249,8 +250,6 @@ int main(int argc, char* argv[]) {
         if (cached_compute_rows == 0) {
             exchange_halo();
             cached_compute_rows = COMPUTE_HALO;
-        } else {
-            cached_compute_rows--;
         }
 
         const unsigned int step_offset = COMPUTE_HALO - cached_compute_rows;
@@ -279,6 +278,9 @@ int main(int argc, char* argv[]) {
                 compute_world[y * SIZE + x] = fminf(1, fmaxf(0, compute_world[y * SIZE + x]));  // Clip between 0 and 1
             }
         }
+
+        // One timestep consumes HALO rows of valid cached border context on each side.
+        cached_compute_rows = (cached_compute_rows > HALO) ? (cached_compute_rows - HALO) : 0;
 #ifdef GENERATE_GIF
         MPI_Gather(my_world, my_rows * SIZE, MPI_FLOAT, world, my_rows * SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
         if (master) {

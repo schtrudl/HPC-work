@@ -7,6 +7,7 @@ import argparse
 import shlex
 from pathlib import Path
 import time
+import re
 
 parser = argparse.ArgumentParser(description="This script will check gif correctness.")
 parser.add_argument(
@@ -129,11 +130,67 @@ if master:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        if os.getenv("SLURM_NTASKS") is None:
+
+        if not in_slurm:
+
+            def compare_images_with_threshold(img1, img2, threshold=0.1):
+                cmd = [
+                    "magick",
+                    "compare",
+                    "-metric",
+                    "RMSE",
+                    img1,
+                    img2,
+                    "null:",
+                ]
+
+                # ImageMagick outputs its metrics to stderr, and 'compare' exits with code 1
+                # if images don't match exactly. We set check=False to prevent python from crashing.
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+
+                # Capture the output from stderr
+                output = result.stderr.strip()
+
+                # Use a regex to grab the normalized value inside the parentheses
+                # e.g., from "8.75185 (0.000133545)" it extracts "0.000133545"
+                match = re.search(r"\((.*?)\)", output)
+
+                if match:
+                    normalized_score = float(match.group(1))
+                    print(f"Normalized RMSE Score: {normalized_score}")
+
+                    if normalized_score <= threshold:
+                        print("PASS: Difference is within the allowed threshold.")
+                        return True
+                    else:
+                        print("FAIL: Difference exceeds threshold.")
+                        return False
+                else:
+                    # If the images match perfectly (0 error), ImageMagick sometimes outputs just '0'
+                    if "0" in output:
+                        print("PASS: Images are a perfect pixel match (0 error).")
+                        return True
+
+                    print(
+                        f"Error running compare or unexpected output structure: {output}"
+                    )
+                    return False
+
             subprocess.run(
                 ["xdg-open", "report.html"],
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+            )
+            exit(
+                compare_images_with_threshold(
+                    "result/out/64/100.png", "result/blessed/64/100.png", threshold=0.01
+                )
             )
     print("DONE")
