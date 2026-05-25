@@ -1,0 +1,41 @@
+\begin{table}[H]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{1 node}\\
+\begin{tabular}{l|rr}
+\hline
+\textbf{Size} & \multicolumn{2}{c}{\textbf{Processes}} \\
+\cline{2-3}
+ & \textbf{32} & \textbf{64} \\
+\hline
+128 & \textbf{0.32} & 0.39 \\
+256 & \textbf{0.54} & 0.63 \\
+512 & \textbf{1.21} & 1.5 \\
+1024 & \textbf{3.00} & 3.9 \\
+2048 & 8.54 & \textbf{7.21} \\
+4096 & 28.25 & \textbf{21.11} \\
+\hline
+\end{tabular}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{2 nodes}\\
+\begin{tabular}{l|rr}
+\hline
+\textbf{Size} & \multicolumn{2}{c}{\textbf{Processes}} \\
+\cline{2-3}
+ & \textbf{32+32} & \textbf{64+64} \\
+\hline
+128 & \textbf{0.48} & 0.80 \\
+256 & \textbf{0.65} & 0.82 \\
+512 & \textbf{1.13} & 1.25 \\
+1024 & \textbf{2.39} & 2.51 \\
+2048 & 5.95 & \textbf{5.58} \\
+4096 & 17.5 & \textbf{14.78} \\
+\hline
+\end{tabular}
+\end{minipage}
+\caption{Execution time (seconds), halos = 2.}
+\end{table}
