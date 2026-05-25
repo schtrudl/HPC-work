@@ -261,7 +261,7 @@ int main(int argc, char* argv[]) {
 
     MPI_Datatype recv_tile_type;
     {
-        int local_sizes[2] = {tile_size + 2 * HALO, tile_size + 2 * HALO};
+        int local_sizes[2] = {my_world_stride, my_world_stride};
         int recv_starts[2] = {HALO, HALO};
         MPI_Type_create_subarray(2, local_sizes, tile_sizes, recv_starts, MPI_ORDER_C, MPI_FLOAT, &recv_tile_type);
         MPI_Type_commit(&recv_tile_type);
@@ -285,13 +285,13 @@ int main(int argc, char* argv[]) {
     MPI_Scatterv(world, sendcounts, displs, send_tile_type, my_world_top_halo, 1, recv_tile_type, 0, cart_comm);
 
     //                 y, x
-    MPI_Type_vector(HALO, tile_size, (tile_size + 2 * HALO), MPI_FLOAT, &col_type);
+    MPI_Type_vector(HALO, tile_size, my_world_stride, MPI_FLOAT, &col_type);
     MPI_Type_commit(&col_type);
 
-    MPI_Type_vector(tile_size, HALO, (tile_size + 2 * HALO), MPI_FLOAT, &row_type);
+    MPI_Type_vector(tile_size, HALO, my_world_stride, MPI_FLOAT, &row_type);
     MPI_Type_commit(&row_type);
 
-    MPI_Type_vector(HALO, HALO, tile_size + 2 * HALO, MPI_FLOAT, &corner_type);
+    MPI_Type_vector(HALO, HALO, my_world_stride, MPI_FLOAT, &corner_type);
     MPI_Type_commit(&corner_type);
 
     const f64 start = MPI_Wtime();
