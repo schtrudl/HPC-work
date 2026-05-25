@@ -80,161 +80,36 @@ fx* generate_kernel(fx* const K, const unsigned int size) {
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
 
 #define HALO KERNEL_SIZE / 2  // Number of halo rows for border exchange
-#define TAG_TOP_BOTTOM 10
-#define TAG_BOTTOM_TOP 11
-#define TAG_LEFT_RIGHT 12
-#define TAG_RIGHT_LEFT 13
-#define TAG_TL_BR 14
-#define TAG_BR_TL 15
-#define TAG_TR_BL 16
-#define TAG_BL_TR 17
 
 int myid, procs;
-int tile_size;
-int proc_rows, proc_cols;
+int tiles_one_dim = 0;
+int tile_size = 0;
 int my_coords[2];
-int north, south, west, east;
-int northwest, northeast, southwest, southeast;
-int local_rows, local_cols;
-int start_row, start_col;
-int pitch;
+int north_west, north, north_east, west, east, south_west, south, south_east;
 MPI_Comm cart_comm;
 
 fx* my_world_top_halo;
 fx* my_world;
 
-static inline int local_extent(const int global_size, const int parts, const int coord) {
-    const int base = global_size / parts;
-    const int rem = global_size % parts;
-    return base + (coord < rem);
-}
-
-static inline int local_start(const int global_size, const int parts, const int coord) {
-    const int base = global_size / parts;
-    const int rem = global_size % parts;
-    return coord * base + ((coord < rem) ? coord : rem);
-}
-
-static inline bool choose_tiling(const int nprocs, int* rows, int* cols) {
-    const int root = (int)(sqrt((double)nprocs) + 0.5);
-    if (root * root != nprocs) {
-        return false;
-    }
-    *rows = root;
-    *cols = root;
-    return true;
-}
-
 static inline void exchange_halo(MPI_Datatype row_type, MPI_Datatype col_type, MPI_Datatype corner_type, fx* const grid, fx* const core) {
-    // Exchange top/bottom strips.
-    MPI_Sendrecv(core, 1, row_type, north, TAG_TOP_BOTTOM, grid + (HALO + local_rows) * pitch + HALO, 1, row_type, south, TAG_TOP_BOTTOM, cart_comm, MPI_STATUS_IGNORE);
+    const int stride = tile_size + 2 * HALO;
 
-    MPI_Sendrecv(core + (local_rows - HALO) * pitch, 1, row_type, south, TAG_BOTTOM_TOP, grid + HALO, 1, row_type, north, TAG_BOTTOM_TOP, cart_comm, MPI_STATUS_IGNORE);
-
-    // Exchange left/right strips.
-    MPI_Sendrecv(core, 1, col_type, west, TAG_LEFT_RIGHT, grid + HALO * pitch + HALO + local_cols, 1, col_type, east, TAG_LEFT_RIGHT, cart_comm, MPI_STATUS_IGNORE);
-
-    MPI_Sendrecv(core + (local_cols - HALO), 1, col_type, east, TAG_RIGHT_LEFT, grid + HALO * pitch, 1, col_type, west, TAG_RIGHT_LEFT, cart_comm, MPI_STATUS_IGNORE);
-
-    // Exchange corner blocks.
-    MPI_Sendrecv(core, 1, corner_type, northwest, TAG_TL_BR, grid + (HALO + local_rows) * pitch + HALO + local_cols, 1, corner_type, southeast, TAG_TL_BR, cart_comm, MPI_STATUS_IGNORE);
-
-    MPI_Sendrecv(core + (local_rows - HALO) * pitch + (local_cols - HALO), 1, corner_type, southeast, TAG_BR_TL, grid, 1, corner_type, northwest, TAG_BR_TL, cart_comm, MPI_STATUS_IGNORE);
-
-    MPI_Sendrecv(core + (local_cols - HALO), 1, corner_type, northeast, TAG_TR_BL, grid + (HALO + local_rows) * pitch, 1, corner_type, southwest, TAG_TR_BL, cart_comm, MPI_STATUS_IGNORE);
-
-    MPI_Sendrecv(core + (local_rows - HALO) * pitch, 1, corner_type, southwest, TAG_BL_TR, grid + HALO + local_cols, 1, corner_type, northeast, TAG_BL_TR, cart_comm, MPI_STATUS_IGNORE);
-}
-
-static inline void scatter_world(const fx* const world, fx* const local, const bool master) {
-    fx* recv_block = (fx*)malloc((size_t)local_rows * (size_t)local_cols * sizeof(fx));
-    if (master) {
-        for (int rank = 0; rank < procs; rank++) {
-            int coords[2];
-            MPI_Cart_coords(cart_comm, rank, 2, coords);
-            const int rr = local_extent(SIZE, proc_rows, coords[0]);
-            const int cc = local_extent(SIZE, proc_cols, coords[1]);
-            const int sr = local_start(SIZE, proc_rows, coords[0]);
-            const int sc = local_start(SIZE, proc_cols, coords[1]);
-            fx* block = (fx*)malloc((size_t)rr * (size_t)cc * sizeof(fx));
-            for (int r = 0; r < rr; r++) {
-                memcpy(block + r * cc, world + (size_t)(sr + r) * SIZE + sc, (size_t)cc * sizeof(fx));
-            }
-            if (rank == 0) {
-                for (int r = 0; r < rr; r++) {
-                    memcpy(local + (size_t)r * pitch, block + (size_t)r * cc, (size_t)cc * sizeof(fx));
-                }
-            } else {
-                MPI_Send(block, rr * cc, MPI_FLOAT, rank, 1000, cart_comm);
-            }
-            free(block);
-        }
-    } else {
-        MPI_Recv(recv_block, local_rows * local_cols, MPI_FLOAT, 0, 1000, cart_comm, MPI_STATUS_IGNORE);
-        for (int r = 0; r < local_rows; r++) {
-            memcpy(local + (size_t)r * pitch, recv_block + (size_t)r * local_cols, (size_t)local_cols * sizeof(fx));
-        }
-    }
-    free(recv_block);
-}
-
-static inline void gather_world(fx* const world, const fx* const local, const bool master) {
-    fx* send_block = (fx*)malloc((size_t)local_rows * (size_t)local_cols * sizeof(fx));
-    if (master) {
-        for (int rank = 0; rank < procs; rank++) {
-            int coords[2];
-            MPI_Cart_coords(cart_comm, rank, 2, coords);
-            const int rr = local_extent(SIZE, proc_rows, coords[0]);
-            const int cc = local_extent(SIZE, proc_cols, coords[1]);
-            const int sr = local_start(SIZE, proc_rows, coords[0]);
-            const int sc = local_start(SIZE, proc_cols, coords[1]);
-
-            fx* block = (fx*)malloc((size_t)rr * (size_t)cc * sizeof(fx));
-            if (rank == 0) {
-                for (int r = 0; r < rr; r++) {
-                    memcpy(block + (size_t)r * cc, local + (size_t)r * pitch, (size_t)cc * sizeof(fx));
-                }
-            } else {
-                MPI_Recv(block, rr * cc, MPI_FLOAT, rank, 1001, cart_comm, MPI_STATUS_IGNORE);
-            }
-            for (int r = 0; r < rr; r++) {
-                memcpy(world + (size_t)(sr + r) * SIZE + sc, block + r * cc, (size_t)cc * sizeof(fx));
-            }
-            free(block);
-        }
-    } else {
-        for (int r = 0; r < local_rows; r++) {
-            memcpy(send_block + (size_t)r * local_cols, local + (size_t)r * pitch, (size_t)local_cols * sizeof(fx));
-        }
-        MPI_Send(send_block, local_rows * local_cols, MPI_FLOAT, 0, 1001, cart_comm);
-    }
-    free(send_block);
-}
-
-static inline void gather_packed_world(fx* const world, const fx* const local, const bool master) {
-    if (master) {
-        for (int rank = 0; rank < procs; rank++) {
-            int coords[2];
-            MPI_Cart_coords(cart_comm, rank, 2, coords);
-            const int rr = local_extent(SIZE, proc_rows, coords[0]);
-            const int cc = local_extent(SIZE, proc_cols, coords[1]);
-            const int sr = local_start(SIZE, proc_rows, coords[0]);
-            const int sc = local_start(SIZE, proc_cols, coords[1]);
-
-            fx* block = (fx*)malloc((size_t)rr * (size_t)cc * sizeof(fx));
-            if (rank == 0) {
-                memcpy(block, local, (size_t)rr * (size_t)cc * sizeof(fx));
-            } else {
-                MPI_Recv(block, rr * cc, MPI_FLOAT, rank, 2001, cart_comm, MPI_STATUS_IGNORE);
-            }
-            for (int r = 0; r < rr; r++) {
-                memcpy(world + (size_t)(sr + r) * SIZE + sc, block + (size_t)r * cc, (size_t)cc * sizeof(fx));
-            }
-            free(block);
-        }
-    } else {
-        MPI_Send((void*)local, local_rows * local_cols, MPI_FLOAT, 0, 2001, cart_comm);
-    }
+    // Send to north, receive from south
+    MPI_Sendrecv(core, 1, row_type, north, 0, grid + (HALO + tile_size) * stride + HALO, 1, row_type, south, 0, cart_comm, MPI_STATUS_IGNORE);
+    // Send to south, receive from north
+    MPI_Sendrecv(core + (tile_size - HALO) * stride, 1, row_type, south, 1, grid + HALO, 1, row_type, north, 1, cart_comm, MPI_STATUS_IGNORE);
+    // Send to west, receive from east
+    MPI_Sendrecv(core, 1, col_type, west, 2, grid + HALO * stride + (HALO + tile_size), 1, col_type, east, 2, cart_comm, MPI_STATUS_IGNORE);
+    // Send to east, receive from west
+    MPI_Sendrecv(core + (tile_size - HALO), 1, col_type, east, 3, grid + HALO * stride, 1, col_type, west, 3, cart_comm, MPI_STATUS_IGNORE);
+    // Send to north-west corner
+    MPI_Sendrecv(core, 1, corner_type, north_west, 4, grid + (HALO + tile_size) * stride + (HALO + tile_size), 1, corner_type, south_east, 4, cart_comm, MPI_STATUS_IGNORE);
+    // Send to north-east corner
+    MPI_Sendrecv(core + (tile_size - HALO), 1, corner_type, north_east, 5, grid + (HALO + tile_size) * stride, 1, corner_type, south_west, 5, cart_comm, MPI_STATUS_IGNORE);
+    // Send to south-west corner
+    MPI_Sendrecv(core + (tile_size - HALO) * stride, 1, corner_type, south_west, 6, grid + (HALO + tile_size), 1, corner_type, north_east, 6, cart_comm, MPI_STATUS_IGNORE);
+    // Send to south-east corner
+    MPI_Sendrecv(core + (tile_size - HALO) * stride + (tile_size - HALO), 1, corner_type, south_east, 7, grid, 1, corner_type, north_west, 7, cart_comm, MPI_STATUS_IGNORE);
 }
 
 int main(int argc, char* argv[]) {
@@ -246,49 +121,26 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &procs);  // number of processes involved in communication
     MPI_Get_processor_name(node_name, &name_len);  // compute node name
     const bool master = (myid == 0);
-    if (!choose_tiling(procs, &proc_rows, &proc_cols)) {
+    for (int i = 1; i <= procs; i++) {
+        if (i * i == procs) {
+            tiles_one_dim = i;
+            break;
+        }
+    }
+    if (tiles_one_dim <= 0) {
         if (master) {
-            fprintf(stderr, "Error: %d processes is not a perfect square. Use 1, 4, 9, 16, 25, ...\n", procs);
+            fprintf(stderr, "Error: %d processes is not a perfect square. Use 1, 4, 16, ...\n", procs);
         }
         MPI_Abort(MPI_COMM_WORLD, 2);
+        return 1;
     }
-
-    int dims[2] = {proc_rows, proc_cols};
-    int periods[2] = {1, 1};
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 0, &cart_comm);
-    MPI_Comm_rank(cart_comm, &myid);
-    MPI_Cart_coords(cart_comm, myid, 2, my_coords);
-
-    local_rows = local_extent(SIZE, proc_rows, my_coords[0]);
-    local_cols = local_extent(SIZE, proc_cols, my_coords[1]);
-    start_row = local_start(SIZE, proc_rows, my_coords[0]);
-    start_col = local_start(SIZE, proc_cols, my_coords[1]);
-    pitch = local_cols + 2 * HALO;
-
-    if (local_rows < HALO || local_cols < HALO) {
+    if (SIZE % tiles_one_dim != 0) {
         if (master) {
-            fprintf(stderr, "Error: Each process must have at least %d rows and columns (current: %d rows, %d cols). Use fewer processes or smaller SIZE.\n", HALO + 1, local_rows, local_cols);
+            fprintf(stderr, "Error: SIZE (%d) must be divisible by sqrt(procs) (%d). Use a different SIZE or number of processes.\n", SIZE, tiles_one_dim);
         }
         MPI_Abort(MPI_COMM_WORLD, 3);
+        return 1;
     }
-
-    MPI_Cart_shift(cart_comm, 0, 1, &north, &south);
-    MPI_Cart_shift(cart_comm, 1, 1, &west, &east);
-
-    int diag_coords[2];
-    diag_coords[0] = (my_coords[0] - 1 + proc_rows) % proc_rows;
-    diag_coords[1] = (my_coords[1] - 1 + proc_cols) % proc_cols;
-    MPI_Cart_rank(cart_comm, diag_coords, &northwest);
-    diag_coords[0] = (my_coords[0] - 1 + proc_rows) % proc_rows;
-    diag_coords[1] = (my_coords[1] + 1) % proc_cols;
-    MPI_Cart_rank(cart_comm, diag_coords, &northeast);
-    diag_coords[0] = (my_coords[0] + 1) % proc_rows;
-    diag_coords[1] = (my_coords[1] - 1 + proc_cols) % proc_cols;
-    MPI_Cart_rank(cart_comm, diag_coords, &southwest);
-    diag_coords[0] = (my_coords[0] + 1) % proc_rows;
-    diag_coords[1] = (my_coords[1] + 1) % proc_cols;
-    MPI_Cart_rank(cart_comm, diag_coords, &southeast);
-    //printf("Hello from process %d of %d in node %s\n", myid, procs, node_name);
 
 #ifdef GENERATE_GIF
     ge_GIF* gif = NULL;
@@ -305,14 +157,55 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
+    tile_size = SIZE / tiles_one_dim;
+    if (tile_size < HALO) {
+        if (master) {
+            fprintf(stderr, "Error: Each process must have at least %d rows and columns (current: %d). Use fewer processes or smaller SIZE.\n", HALO + 1, tile_size);
+        }
+        MPI_Abort(MPI_COMM_WORLD, 3);
+        return 1;
+    }
+
+    int dims[2] = {tiles_one_dim, tiles_one_dim};
+    int periods[2] = {1, 1};
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 0, &cart_comm);
+    MPI_Comm_rank(cart_comm, &myid);
+    MPI_Cart_coords(cart_comm, myid, 2, my_coords);
+    /*
+    NW N NE
+    W  .  E
+    SW S SE
+    */
+    MPI_Cart_shift(cart_comm, 0, 1, &north, &south);
+    MPI_Cart_shift(cart_comm, 1, 1, &west, &east);
+    int diag_coords[2];
+    diag_coords[0] = (my_coords[0] - 1 + tiles_one_dim) % tiles_one_dim;
+    diag_coords[1] = (my_coords[1] - 1 + tiles_one_dim) % tiles_one_dim;
+    MPI_Cart_rank(cart_comm, diag_coords, &north_west);
+    diag_coords[0] = (my_coords[0] - 1 + tiles_one_dim) % tiles_one_dim;
+    diag_coords[1] = (my_coords[1] + 1) % tiles_one_dim;
+    MPI_Cart_rank(cart_comm, diag_coords, &north_east);
+    diag_coords[0] = (my_coords[0] + 1) % tiles_one_dim;
+    diag_coords[1] = (my_coords[1] - 1 + tiles_one_dim) % tiles_one_dim;
+    MPI_Cart_rank(cart_comm, diag_coords, &south_west);
+    diag_coords[0] = (my_coords[0] + 1) % tiles_one_dim;
+    diag_coords[1] = (my_coords[1] + 1) % tiles_one_dim;
+    MPI_Cart_rank(cart_comm, diag_coords, &south_east);
+
     // Allocate memory
     fx* const k = (fx*)calloc(KERNEL_SIZE * KERNEL_SIZE, sizeof(fx));
     fx* const world = (fx*)calloc(SIZE * SIZE, sizeof(fx));
-    fx* const tmp = (fx*)calloc((size_t)local_rows * (size_t)local_cols, sizeof(fx));
+    fx* const tmp = (fx*)calloc(tile_size * tile_size, sizeof(fx));
 
-    const size_t local_total = (size_t)(local_rows + 2 * HALO) * (size_t)(local_cols + 2 * HALO);
-    my_world_top_halo = (fx*)calloc(local_total, sizeof(fx));
-    my_world = my_world_top_halo + (size_t)HALO * pitch + HALO;
+    /*
+    HALO   HALO   HALO
+    HALO MY_WORLD HALO
+    HALO   HALO   HALO
+    */
+
+    int my_world_stride = tile_size + 2 * HALO;
+    my_world_top_halo = (fx*)calloc(my_world_stride * my_world_stride, sizeof(fx));
+    my_world = &my_world_top_halo[HALO * my_world_stride + HALO];
 
     // Generate convolution kernel
     generate_kernel(k, KERNEL_SIZE);
@@ -323,14 +216,58 @@ int main(int argc, char* argv[]) {
         place_orbium(world, SIZE, SIZE, orbiums[o].row, orbiums[o].col, orbiums[o].angle);
     }
 
-    scatter_world(world, my_world, master);
+    // --- 1. Definiranje podatkovnega tipa za pošiljanje ene ploščice (Tile) iz matrike 'world' ---
+    MPI_Datatype send_tile_type, resized_send_tile_type;
+    int world_sizes[2] = {SIZE, SIZE};
+    int tile_sizes[2] = {tile_size, tile_size};
+    int send_starts[2] = {0, 0};
+
+    MPI_Type_create_subarray(2, world_sizes, tile_sizes, send_starts, MPI_ORDER_C, MPI_FLOAT, &send_tile_type);  // Opomba: Če je fx 'double', zamenjajte z MPI_DOUBLE
+
+    // Spremenimo obseg tipa na velikost enega elementa (fx), da omogočimo poljubne odmike (displacements) v bajtih
+    MPI_Type_create_resized(send_tile_type, 0, sizeof(fx), &resized_send_tile_type);
+    MPI_Type_commit(&resized_send_tile_type);
+
+    // --- 2. Definiranje podatkovnega tipa za sprejem ploščice v lokalni 'my_world_top_halo' ---
+    // Ker ima lokalna matrika okoli sebe HALO robove, moramo podatke vpisati točno v sredino (kamor kaže my_world)
+    MPI_Datatype recv_tile_type;
+    int local_sizes[2] = {tile_size + 2 * HALO, tile_size + 2 * HALO};
+    int recv_starts[2] = {HALO, HALO};  // Vpisovati začnemo na indeksu HALO, HALO
+
+    MPI_Type_create_subarray(2, local_sizes, tile_sizes, recv_starts, MPI_ORDER_C, MPI_FLOAT, &recv_tile_type);
+    MPI_Type_commit(&recv_tile_type);
+
+    int* sendcounts = NULL;
+    int* displs = NULL;
+
+    if (master) {
+        sendcounts = (int*)calloc(procs, sizeof(int));
+        displs = (int*)calloc(procs, sizeof(int));
+
+        for (int r = 0; r < procs; r++) {
+            sendcounts[r] = 1;  // Vsak proces prejme natanko 1 ploščico
+
+            // Poiščemo kartezijske koordinate ciljnega procesa 'r'
+            int target_coords[2];
+            MPI_Cart_coords(cart_comm, r, 2, target_coords);
+
+            // Izračunamo začetni indeks (vrstica, stolpec) ploščice v globalni matriki 'world'
+            int row_start = target_coords[0] * tile_size;
+            int col_start = target_coords[1] * tile_size;
+
+            // Odmik (displacement) v enotah elementov tipa fx
+            displs[r] = row_start * SIZE + col_start;
+        }
+    }
+
+    MPI_Scatterv(world, sendcounts, displs, resized_send_tile_type, my_world_top_halo, 1, recv_tile_type, 0, cart_comm);
 
     MPI_Datatype row_type;
     MPI_Datatype col_type;
     MPI_Datatype corner_type;
-    MPI_Type_vector(HALO, local_cols, pitch, MPI_FLOAT, &row_type);
-    MPI_Type_vector(local_rows, HALO, pitch, MPI_FLOAT, &col_type);
-    MPI_Type_vector(HALO, HALO, pitch, MPI_FLOAT, &corner_type);
+    MPI_Type_vector(HALO, tile_size, (tile_size + 2 * HALO), MPI_FLOAT, &row_type);
+    MPI_Type_vector(tile_size, HALO, (tile_size + 2 * HALO), MPI_FLOAT, &col_type);
+    MPI_Type_vector(HALO, HALO, tile_size + 2 * HALO, MPI_FLOAT, &corner_type);
     MPI_Type_commit(&row_type);
     MPI_Type_commit(&col_type);
     MPI_Type_commit(&corner_type);
@@ -342,29 +279,29 @@ int main(int argc, char* argv[]) {
         exchange_halo(row_type, col_type, corner_type, my_world_top_halo, my_world);
 
         // Convolution
-        for (int y = 0; y < local_rows; y++) {
-            for (int x = 0; x < local_cols; x++) {
+        for (int y = 0; y < tile_size; y++) {
+            for (int x = 0; x < tile_size; x++) {
                 fx sum = 0;
                 for (int ki = KERNEL_SIZE - 1, kri = 0; ki >= 0; ki--, kri++) {
                     for (int kj = KERNEL_SIZE - 1, kcj = 0; kj >= 0; kj--, kcj++) {
                         const int r = y + kri;
                         const int c = x + kcj;
-                        sum += w(ki, kj) * my_world_top_halo[r * pitch + c];
+                        sum += w(ki, kj) * my_world_top_halo[r * my_world_stride + c];
                     }
                 }
-                tmp[y * local_cols + x] = sum;
+                tmp[y * tile_size + x] = sum;
             }
         }
 
         // Evolution
-        for (int y = 0; y < local_rows; y++) {
-            for (int x = 0; x < local_cols; x++) {
-                my_world[y * pitch + x] += DT * growth_lenia(tmp[y * local_cols + x]);
-                my_world[y * pitch + x] = fminf(1, fmaxf(0, my_world[y * pitch + x]));  // Clip between 0 and 1
+        for (int y = 0; y < tile_size; y++) {
+            for (int x = 0; x < tile_size; x++) {
+                my_world[y * my_world_stride + x] += DT * growth_lenia(tmp[y * tile_size + x]);
+                my_world[y * my_world_stride + x] = fminf(1, fmaxf(0, my_world[y * my_world_stride + x]));  // Clip between 0 and 1
             }
         }
 #ifdef GENERATE_GIF
-        gather_world(world, my_world, master);
+        MPI_Gatherv(my_world_top_halo, 1, recv_tile_type, world, sendcounts, displs, resized_send_tile_type, 0, cart_comm);
         if (master) {
             for (unsigned int i = 0; i < SIZE * SIZE; i++) {
                 gif->frame[i] = world[i] * 255;

@@ -76,10 +76,22 @@ for size in args.size:
     else:
         while not os.path.exists(binary):
             time.sleep(0.1)
-    cmd = ["mpirun", "--oversubscribe", "-mca", "pml", "ob1", "-np", f"{SLURM_NTASKS}", f"./{binary}"]
+    cmd = [
+        "mpirun",
+        "--oversubscribe",
+        "-mca",
+        "pml",
+        "ob1",
+        "-np",
+        f"{SLURM_NTASKS}",
+        f"./{binary}",
+    ]
     if not in_slurm and SLURM_NTASKS != 1:
         print(f"Spawning {SLURM_NTASKS} processes with mpirun.")
-        procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(SLURM_NTASKS)]
+        procs = [
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(SLURM_NTASKS)
+        ]
         for p in procs:
             if p.wait() != 0:
                 raise subprocess.CalledProcessError(p.returncode, cmd)
