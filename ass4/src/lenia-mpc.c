@@ -256,6 +256,21 @@ int main(int argc, char* argv[]) {
         const unsigned int active_rows = my_rows + 2 * cached_compute_rows;
         fx* compute_world = &my_world_top_halo[(HALO + step_offset) * SIZE];
 
+        /*
+        // Convolution with sparse kernel
+        for (unsigned int y = 0; y < active_rows; y++) {
+            for (unsigned int x = 0; x < SIZE; x++) {
+                fx sum = 0;
+                for (int ki = 0; ki < NUM_KERNEL_ENTRIES; ki++) {
+                    const int r = (int)y + (int)step_offset + HALO + sparse_kernel[ki].dy;
+                    const int c = ((int)x + (int)SIZE + sparse_kernel[ki].dx) % (int)SIZE;
+                    sum += sparse_kernel[ki].weight * my_world_top_halo[r * (int)SIZE + c];
+                }
+                tmp[y * SIZE + x] = sum;
+            }
+        }
+        */
+
         // Convolution
         for (unsigned int y = 0; y < active_rows; y++) {
             for (unsigned int x = 0; x < SIZE; x++) {
