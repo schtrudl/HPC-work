@@ -14,9 +14,10 @@
 #define NUM_STEPS 100
 #define DT 0.1
 #define KERNEL_SIZE 26
+#define HALO (KERNEL_SIZE / 2)  // Number of halo rows for border exchange
 // this is only useful to be multiple of HALO
 #ifndef COMPUTE_HALO
-    #define COMPUTE_HALO HALO
+    #define COMPUTE_HALO (HALO * 3)
 #endif
 #define NUM_ORBIUMS 2
 
@@ -83,7 +84,6 @@ fx* generate_kernel(fx* const K, const unsigned int size) {
 
 struct orbium_coo orbiums[NUM_ORBIUMS] = {{0, SIZE / 3, 0}, {SIZE / 3, 0, 180}};
 
-#define HALO (KERNEL_SIZE / 2)  // Number of halo rows for border exchange
 #define HALO_SIZE (HALO * SIZE)
 #define COMPUTE_HALO_SIZE (COMPUTE_HALO * SIZE)
 #define EXCHANGED_ROWS (HALO + COMPUTE_HALO)
