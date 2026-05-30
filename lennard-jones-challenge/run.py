@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "-n",
     type=int,
-    default=10,
+    default=5,
     help="Number of times to repeat the execution for each image (default: 20)",
 )
 parser.add_argument(

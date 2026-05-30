@@ -2,13 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <omp.h>
 
 #include <cuda_runtime.h>
 #include <cuda.h>
 #define WARP_SIZE 32
 
+#define Vec3 double3
+
 #define DEBUG 1
-#ifdef DEBUG
+#if DEBUG
     #define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
     #define getLastCudaError(msg) __getLastCudaError(msg, __FILE__, __LINE__)
 #else
@@ -56,11 +59,6 @@ double compute_ke(const Particle* particles, unsigned int n) {
     return ke;
 }
 
-Vec3* d_position;
-Vec3* d_velocity;
-Vec3* d_force;
-double* d_result;
-
 // special function that performs warp-level reduction to sum
 // using shuffle instructions, which is more efficient than shared memory reduction
 __inline__ __device__ double warp_reduce(double val) {
@@ -106,7 +104,7 @@ __global__ void d_compute_ke(const Vec3* velocity, unsigned int n, double* resul
     if (threadIdx.x == 0) atomicAdd(result, ke);
 }
 
-inline double g_compute_ke(Vec3* velocity, unsigned int n) {
+inline double g_compute_ke(Vec3* velocity, unsigned int n, double* d_result) {
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
@@ -217,7 +215,7 @@ __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int
     }
 }
 
-inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size) {
+inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size, double* d_result) {
     dim3 block_size_n(256, 1);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1, (n - 1) / block_size_n.y + 1);
     checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
@@ -299,31 +297,8 @@ inline void g_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, d
     checkCudaErrors(cudaGetLastError());
 }
 
-SimulationResult out;
-
-// we can do a LOT here
-// memory copies, intial stats, first 1000 steps, ...
-void init_cuda(Vec3* position, Vec3* velocity, Vec3* force, unsigned int n, double box_size) {
-    checkCudaErrors(cudaMalloc((void**)&d_position, n * sizeof(Vec3)));
-    checkCudaErrors(cudaMemcpy(d_position, position, n * sizeof(Vec3), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMalloc((void**)&d_velocity, n * sizeof(Vec3)));
-    checkCudaErrors(cudaMemcpy(d_velocity, velocity, n * sizeof(Vec3), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMalloc((void**)&d_force, n * sizeof(Vec3)));
-    checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec3)));
-    checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
-    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
-
-    out.start_potential = g_compute_forces(d_position, d_force, n, box_size);
-    out.start_kinetic = g_compute_ke(d_velocity, n);
-    out.start_total = out.start_kinetic + out.start_potential;
-    // 1000 steps here but in different buffer if they try to mess with us
-}
-
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature) {
     srand(seed);
-    Vec3* position = (Vec3*)calloc(n, sizeof(Vec3));
-    Vec3* velocity = (Vec3*)calloc(n, sizeof(Vec3));
-    Vec3* force = (Vec3*)calloc(n, sizeof(Vec3));
     unsigned int n_side = (unsigned int)ceil(cbrt((double)n));
     double placement_size = placement_fraction * box_size;
     double offset = 0.5 * (box_size - placement_size);
@@ -343,17 +318,17 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
         double y0 = offset + (0.5 + (double)iy) * delta;
         double z0 = offset + (0.5 + (double)iz) * delta;
 
-        position[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
-        position[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
-        position[k].z = z0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        particles[k].x = x0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        particles[k].y = y0 + (2.0 * random_double() - 1.0) * JITTER * delta;
+        particles[k].z = z0 + (2.0 * random_double() - 1.0) * JITTER * delta;
 
-        velocity[k].x = 2.0 * random_double() - 1.0;
-        velocity[k].y = 2.0 * random_double() - 1.0;
-        velocity[k].z = 2.0 * random_double() - 1.0;
+        particles[k].vx = 2.0 * random_double() - 1.0;
+        particles[k].vy = 2.0 * random_double() - 1.0;
+        particles[k].vz = 2.0 * random_double() - 1.0;
 
-        mean_vx += velocity[k].x;
-        mean_vy += velocity[k].y;
-        mean_vz += velocity[k].z;
+        mean_vx += particles[k].vx;
+        mean_vy += particles[k].vy;
+        mean_vz += particles[k].vz;
     }
 
     mean_vx /= (double)n;
@@ -362,27 +337,25 @@ int initialize_particles(Particle* particles, unsigned int n, double box_size, d
     double ke = 0.0;
     // subtract mean velocity to ensure zero net momentum and compute initial kinetic energy
     for (unsigned int k = 0; k < n; k++) {
-        velocity[k].x -= mean_vx;
-        velocity[k].y -= mean_vy;
-        velocity[k].z -= mean_vz;
-        ke += 0.5 * (velocity[k].x * velocity[k].x + velocity[k].y * velocity[k].y + velocity[k].z * velocity[k].z);
+        particles[k].vx -= mean_vx;
+        particles[k].vy -= mean_vy;
+        particles[k].vz -= mean_vz;
+        ke += 0.5 * (particles[k].vx * particles[k].vx + particles[k].vy * particles[k].vy + particles[k].vz * particles[k].vz);
     }
 
     double current_temperature = ke / (double)n;
     if (current_temperature <= 0.0) {
-        init_cuda(position, velocity, force, n, box_size);
         return 0;
     }
 
     // scale velocities to match the desired initial temperature of the system
     double scale = sqrt(temperature / current_temperature);
     for (unsigned int k = 0; k < n; k++) {
-        velocity[k].x *= scale;
-        velocity[k].y *= scale;
-        velocity[k].z *= scale;
+        particles[k].vx *= scale;
+        particles[k].vy *= scale;
+        particles[k].vz *= scale;
     }
 
-    init_cuda(position, velocity, force, n, box_size);
     return 1;
 }
 
@@ -488,6 +461,33 @@ double leapfrog_step(Particle* particles, unsigned int n, double box_size) {
 
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
     // assume log_steps = 0
+    SimulationResult out;
+
+    Vec3* d_position;
+    Vec3* d_velocity;
+    Vec3* d_force;
+    double* d_result;
+
+    checkCudaErrors(cudaMalloc((void**)&d_position, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_velocity, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_force, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
+
+    // abuse Memcpy2D to do strided copies
+    static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(d_position, sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
+    static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(d_velocity, sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
+    // no need to copy forces as they will be zeroed/computed down bellow:
+
+    out.start_potential = g_compute_forces(d_position, d_force, n, box_size, d_result);
+    out.start_kinetic = g_compute_ke(d_velocity, n, d_result);
+    out.start_total = out.start_kinetic + out.start_potential;
+
+#if DEBUG
+    double start = omp_get_wtime();
+#endif
+
     // do nsteps-1 steps without energy computation
     for (unsigned int step = 1; step < nsteps; step++) {
         g_first_update(d_position, d_velocity, d_force, n, box_size);
@@ -497,12 +497,23 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 
     // do last step with energy computation
     g_first_update(d_position, d_velocity, d_force, n, box_size);
-    out.final_potential = g_compute_forces(d_position, d_force, n, box_size);
+    out.final_potential = g_compute_forces(d_position, d_force, n, box_size, d_result);
     g_second_update(d_position, d_velocity, d_force, n, box_size);
-    out.final_kinetic = g_compute_ke(d_velocity, n);
+    out.final_kinetic = g_compute_ke(d_velocity, n, d_result);
     out.final_total = out.final_kinetic + out.final_potential;
 
-    // no need for full download
+#if DEBUG
+    double stop = omp_get_wtime();
+    printf("Time(compute): %f s\n", stop - start);
+#endif
+
+    // abuse Memcpy2D for strided copies
+    static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].x, sizeof(Particle), d_position, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+    static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].vx, sizeof(Particle), d_velocity, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+    static_assert(sizeof(Particle) - offsetof(Particle, fx) == sizeof(Vec3), "Particle force fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].fx, sizeof(Particle), d_force, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
 
     out.n = n;
     out.particles = particles;
