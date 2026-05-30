@@ -1,0 +1,6 @@
+
+Finished simulation.
+Final KE: 150110.1740 | delta: +100110.1740
+Final PE: -422051.3096 | delta: -100135.0412
+Final E:  -271941.1356 | delta: -24.8672
+Time(full): 6354.607974 s

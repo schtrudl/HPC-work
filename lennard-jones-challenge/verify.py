@@ -43,10 +43,14 @@ if not args.dry_run:
     configs = [(100, 100), (1000, 100)]
     if args.full:
         configs += [
-            (1000, 5000),
-            (2000, 5000),
-            (4000, 5000),
-            (8000, 5000),
+            (5000, 100),
+            (10000, 100),
+            (50000, 100),
+            (100000, 100),
+            #(1000, 5000),
+            #(2000, 5000),
+            #(4000, 5000),
+            #(8000, 5000),
         ]
 
     for particles, steps in configs:
@@ -62,9 +66,9 @@ if not args.dry_run:
             + "\n"
         )
 
-        out = f"result/out/{particles}_{steps}"
+        out = "result/out"
         os.makedirs(out, exist_ok=True)
-        with open(f"{out}/result.txt", "w") as f:
+        with open(f"{out}/{particles}_{steps}.txt", "w") as f:
             f.write(result)
 
 if args.bless and not args.dry_run:
@@ -74,16 +78,16 @@ else:
 
     # diff all result.txt files
     for out in os.listdir("result/out"):
-        with open(f"result/out/{out}/result.txt") as f:
+        with open(f"result/out/{out}", "r") as f:
             out_result = f.read()
-        with open(f"result/blessed/{out}/result.txt") as f:
+        with open(f"result/blessed/{out}", "r") as f:
             blessed_result = f.read()
         diff = "\n".join(
             difflib.unified_diff(
                 blessed_result.splitlines(),
                 out_result.splitlines(),
-                fromfile=f"blessed/{out}/result.txt",
-                tofile=f"out/{out}/result.txt",
+                fromfile=f"blessed/{out}",
+                tofile=f"out/{out}",
                 lineterm="",
             )
         )
