@@ -303,6 +303,372 @@ inline void g_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, d
     checkCudaErrors(cudaGetLastError());
 }
 
+#ifndef CELL_SKIN
+    #define CELL_SKIN 0.3
+#endif
+
+typedef struct {
+    int nx;
+    int ny;
+    int nz;
+    int n_cells;
+    double inv_cx;
+    double inv_cy;
+    double inv_cz;
+
+    int* d_head;
+    int* d_next;
+    int* d_pcell;
+    double* d_ref_x;
+    double* d_ref_y;
+    double* d_ref_z;
+    int* d_rebuild_flag;
+
+    int* h_head;
+    int* h_next;
+    int* h_pcell;
+    double* h_ref_x;
+    double* h_ref_y;
+    double* h_ref_z;
+    Vec3* h_pos_tmp;
+} Tiled3DState;
+
+constexpr double tiled_skin2 = (CELL_SKIN * 0.5) * (CELL_SKIN * 0.5);
+
+__host__ __device__ inline int cell_index_3d(int cx, int cy, int cz, int nx, int ny) {
+    return (cz * ny + cy) * nx + cx;
+}
+
+void init_tiled3d_state(Tiled3DState* st, unsigned int n, double box_size) {
+    memset(st, 0, sizeof(*st));
+
+    double cell_size = R_CUT + CELL_SKIN;
+    st->nx = (int)(box_size / cell_size);
+    st->ny = (int)(box_size / cell_size);
+    st->nz = (int)(box_size / cell_size);
+    if (st->nx < 3) st->nx = 3;
+    if (st->ny < 3) st->ny = 3;
+    if (st->nz < 3) st->nz = 3;
+    st->n_cells = st->nx * st->ny * st->nz;
+    st->inv_cx = (double)st->nx / box_size;
+    st->inv_cy = (double)st->ny / box_size;
+    st->inv_cz = (double)st->nz / box_size;
+
+    checkCudaErrors(cudaMalloc((void**)&st->d_head, st->n_cells * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_next, n * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_pcell, n * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_ref_x, n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_ref_y, n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_ref_z, n * sizeof(double)));
+    checkCudaErrors(cudaMalloc((void**)&st->d_rebuild_flag, sizeof(int)));
+
+    st->h_head = (int*)malloc(st->n_cells * sizeof(int));
+    st->h_next = (int*)malloc(n * sizeof(int));
+    st->h_pcell = (int*)malloc(n * sizeof(int));
+    st->h_ref_x = (double*)malloc(n * sizeof(double));
+    st->h_ref_y = (double*)malloc(n * sizeof(double));
+    st->h_ref_z = (double*)malloc(n * sizeof(double));
+    st->h_pos_tmp = (Vec3*)malloc(n * sizeof(Vec3));
+}
+
+void free_tiled3d_state(Tiled3DState* st) {
+    if (st->d_head) checkCudaErrors(cudaFree(st->d_head));
+    if (st->d_next) checkCudaErrors(cudaFree(st->d_next));
+    if (st->d_pcell) checkCudaErrors(cudaFree(st->d_pcell));
+    if (st->d_ref_x) checkCudaErrors(cudaFree(st->d_ref_x));
+    if (st->d_ref_y) checkCudaErrors(cudaFree(st->d_ref_y));
+    if (st->d_ref_z) checkCudaErrors(cudaFree(st->d_ref_z));
+    if (st->d_rebuild_flag) checkCudaErrors(cudaFree(st->d_rebuild_flag));
+
+    free(st->h_head);
+    free(st->h_next);
+    free(st->h_pcell);
+    free(st->h_ref_x);
+    free(st->h_ref_y);
+    free(st->h_ref_z);
+    free(st->h_pos_tmp);
+
+    memset(st, 0, sizeof(*st));
+}
+
+__global__ void d_tiled3d_needs_rebuild(const Vec3* position, const double* ref_x, const double* ref_y, const double* ref_z, unsigned int n, double box_size, int* needs_rebuild) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int my_needs_rebuild = 0;
+    if (i < (int)n) {
+        double dx = position[i].x - ref_x[i];
+        double dy = position[i].y - ref_y[i];
+        double dz = position[i].z - ref_z[i];
+        dx -= box_size * nearbyint(dx / box_size);
+        dy -= box_size * nearbyint(dy / box_size);
+        dz -= box_size * nearbyint(dz / box_size);
+        if (dx * dx + dy * dy + dz * dz > tiled_skin2) {
+            my_needs_rebuild = 1;
+        }
+    }
+
+    my_needs_rebuild = (int)block_reduce((double)my_needs_rebuild);
+    if (threadIdx.x == 0 && my_needs_rebuild) {
+        *needs_rebuild = 1;
+    }
+}
+
+void tiled3d_rebuild(Tiled3DState* st, const Vec3* d_position, unsigned int n) {
+    checkCudaErrors(cudaMemcpy(st->h_pos_tmp, d_position, n * sizeof(Vec3), cudaMemcpyDeviceToHost));
+
+    for (int c = 0; c < st->n_cells; c++) {
+        st->h_head[c] = -1;
+    }
+
+    for (int i = (int)n - 1; i >= 0; i--) {
+        int cx = (int)(st->h_pos_tmp[i].x * st->inv_cx);
+        int cy = (int)(st->h_pos_tmp[i].y * st->inv_cy);
+        int cz = (int)(st->h_pos_tmp[i].z * st->inv_cz);
+
+        if (cx < 0)
+            cx = 0;
+        else if (cx >= st->nx)
+            cx = st->nx - 1;
+        if (cy < 0)
+            cy = 0;
+        else if (cy >= st->ny)
+            cy = st->ny - 1;
+        if (cz < 0)
+            cz = 0;
+        else if (cz >= st->nz)
+            cz = st->nz - 1;
+
+        int c = cell_index_3d(cx, cy, cz, st->nx, st->ny);
+        st->h_pcell[i] = c;
+        st->h_next[i] = st->h_head[c];
+        st->h_head[c] = i;
+        st->h_ref_x[i] = st->h_pos_tmp[i].x;
+        st->h_ref_y[i] = st->h_pos_tmp[i].y;
+        st->h_ref_z[i] = st->h_pos_tmp[i].z;
+    }
+
+    checkCudaErrors(cudaMemcpyAsync(st->d_head, st->h_head, st->n_cells * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(st->d_next, st->h_next, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(st->d_pcell, st->h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(st->d_ref_x, st->h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(st->d_ref_y, st->h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyAsync(st->d_ref_z, st->h_ref_z, n * sizeof(double), cudaMemcpyHostToDevice));
+}
+
+bool tiled3d_needs_rebuild(Tiled3DState* st, const Vec3* d_position, unsigned int n, double box_size) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    checkCudaErrors(cudaMemset(st->d_rebuild_flag, 0, sizeof(int)));
+    d_tiled3d_needs_rebuild<<<grid_size_n, block_size_n>>>(d_position, st->d_ref_x, st->d_ref_y, st->d_ref_z, n, box_size, st->d_rebuild_flag);
+    checkCudaErrors(cudaGetLastError());
+
+    int flag = 0;
+    checkCudaErrors(cudaMemcpy(&flag, st->d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
+    return flag != 0;
+}
+
+__global__ void d_compute_forces_tiled3d(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) {
+        return;
+    }
+
+    const Vec3 pi = position[i];
+    Vec3 f = {0.0, 0.0, 0.0};
+    double pe = 0.0;
+
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = (ci / nx) % ny;
+    int ciz = ci / (nx * ny);
+
+    for (int ndz = -1; ndz <= 1; ndz++) {
+        int ncz = (ciz + ndz + nz) % nz;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + ny) % ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + nx) % nx;
+                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
+
+                for (int j = head[nc]; j >= 0; j = next[j]) {
+                    if ((unsigned int)j == i) {
+                        continue;
+                    }
+
+                    const Vec3 pj = position[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
+                    double dz = pi.z - pj.z;
+
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    dz -= box_size * nearbyint(dz / box_size);
+
+                    double r2 = dx * dx + dy * dy + dz * dz;
+                    if (r2 >= rc2 || r2 == 0.0) {
+                        continue;
+                    }
+
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    f.x += fij * dx;
+                    f.y += fij * dy;
+                    f.z += fij * dz;
+
+                    pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
+                }
+            }
+        }
+    }
+
+    force[i] = f;
+    atomicAdd(result, pe);
+}
+
+__global__ void d_compute_forces_no_pe_tiled3d(const Vec3* position, Vec3* force, unsigned int n, double box_size, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) {
+        return;
+    }
+
+    const Vec3 pi = position[i];
+    Vec3 f = {0.0, 0.0, 0.0};
+
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = (ci / nx) % ny;
+    int ciz = ci / (nx * ny);
+
+    for (int ndz = -1; ndz <= 1; ndz++) {
+        int ncz = (ciz + ndz + nz) % nz;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + ny) % ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + nx) % nx;
+                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
+
+                for (int j = head[nc]; j >= 0; j = next[j]) {
+                    if ((unsigned int)j == i) {
+                        continue;
+                    }
+
+                    const Vec3 pj = position[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
+                    double dz = pi.z - pj.z;
+
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    dz -= box_size * nearbyint(dz / box_size);
+
+                    double r2 = dx * dx + dy * dy + dz * dz;
+                    if (r2 >= rc2 || r2 == 0.0) {
+                        continue;
+                    }
+
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    f.x += fij * dx;
+                    f.y += fij * dy;
+                    f.z += fij * dz;
+                }
+            }
+        }
+    }
+
+    force[i] = f;
+}
+
+inline double g_compute_forces_tiled3d(Vec3* position, Vec3* force, unsigned int n, double box_size, double* d_result, const Tiled3DState* st) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_forces_tiled3d<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
+    checkCudaErrors(cudaGetLastError());
+
+    double pe;
+    checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return pe;
+}
+
+inline void g_compute_forces_no_pe_tiled3d(Vec3* position, Vec3* force, unsigned int n, double box_size, const Tiled3DState* st) {
+    dim3 block_size_n(256);
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
+    d_compute_forces_no_pe_tiled3d<<<grid_size_n, block_size_n>>>(position, force, n, box_size, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
+    checkCudaErrors(cudaGetLastError());
+}
+
+SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps) {
+    SimulationResult out;
+
+    Vec3* d_position;
+    Vec3* d_velocity;
+    Vec3* d_force;
+    double* d_result;
+    Tiled3DState tiled;
+
+    checkCudaErrors(cudaMalloc((void**)&d_position, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_velocity, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_force, n * sizeof(Vec3)));
+    checkCudaErrors(cudaMalloc((void**)&d_result, sizeof(double)));
+
+    init_tiled3d_state(&tiled, n, box_size);
+
+    static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(d_position, sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
+    static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(d_velocity, sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
+
+    tiled3d_rebuild(&tiled, d_position, n);
+
+    out.start_potential = g_compute_forces_tiled3d(d_position, d_force, n, box_size, d_result, &tiled);
+    out.start_kinetic = g_compute_ke(d_velocity, n, d_result);
+    out.start_total = out.start_kinetic + out.start_potential;
+
+#if DEBUG
+    double start = omp_get_wtime();
+#endif
+
+    for (unsigned int step = 1; step < nsteps; step++) {
+        g_first_update(d_position, d_velocity, d_force, n, box_size);
+        if (tiled3d_needs_rebuild(&tiled, d_position, n, box_size)) {
+            tiled3d_rebuild(&tiled, d_position, n);
+        }
+        g_compute_forces_no_pe_tiled3d(d_position, d_force, n, box_size, &tiled);
+        g_second_update(d_position, d_velocity, d_force, n, box_size);
+    }
+
+    g_first_update(d_position, d_velocity, d_force, n, box_size);
+    if (tiled3d_needs_rebuild(&tiled, d_position, n, box_size)) {
+        tiled3d_rebuild(&tiled, d_position, n);
+    }
+    out.final_potential = g_compute_forces_tiled3d(d_position, d_force, n, box_size, d_result, &tiled);
+    g_second_update(d_position, d_velocity, d_force, n, box_size);
+    out.final_kinetic = g_compute_ke(d_velocity, n, d_result);
+    out.final_total = out.final_kinetic + out.final_potential;
+
+#if DEBUG
+    double stop = omp_get_wtime();
+    printf("Time(compute): %f s\n", stop - start);
+#endif
+
+    static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].x, sizeof(Particle), d_position, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+    static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].vx, sizeof(Particle), d_velocity, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+    static_assert(sizeof(Particle) - offsetof(Particle, fx) == sizeof(Vec3), "Particle force fields are not layout-compatible with double3");
+    checkCudaErrors(cudaMemcpy2D(&particles[0].fx, sizeof(Particle), d_force, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+
+    out.n = n;
+    out.particles = particles;
+    return out;
+}
+
 int initialize_particles(Particle* particles, unsigned int n, double box_size, double placement_fraction, unsigned int seed, double temperature) {
     srand(seed);
     unsigned int n_side = (unsigned int)ceil(cbrt((double)n));

@@ -8,7 +8,7 @@
 #SBATCH --gpus=1
 # lahko sta dva
 #SBATCH --nodes=1
-#SBATCH --output=timings_3.log
+#SBATCH --output=x.log
 #SBATCH --mem=16G
 #SBATCH --hint=nomultithread
 #SBATCH --time=00:30:00
@@ -19,5 +19,5 @@ module load CUDA
 #make
 #srun ./lj.out
 
-#./run.py --srun
+#./run.py --srun -n 1
 ./verify.py --srun --full
