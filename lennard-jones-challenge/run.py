@@ -34,7 +34,7 @@ args = parser.parse_args()
 
 binary = "lj.out"
 if not args.particles:
-    args.particles = [1000, 2000, 4000, 8000]
+    args.particles = [1000, 2000, 4000, 8000, 10000, 20000, 40000, 80000, 100000]
 
 try:
     os.remove(binary)
@@ -54,7 +54,11 @@ for particles in args.particles:
         cmd = [f"./{binary}", f"{particles}", f"{args.steps}"]
         if args.srun:
             cmd = ["srun"] + cmd
-        output = subprocess.check_output(cmd).decode("utf-8")
+        # allow failure and just skip to next run, as some runs with large particle counts may OOM or timeout
+        try:
+            output = subprocess.check_output(cmd).decode("utf-8")
+        except subprocess.CalledProcessError:
+            continue
         # parse Time(...): ... s
         regex = r"Time\((.*?)\): ([0-9.]+) s"
         times: dict[str, float] = {}

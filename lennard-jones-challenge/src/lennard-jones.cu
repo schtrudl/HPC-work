@@ -169,7 +169,7 @@ constexpr double rc2 = R_CUT * R_CUT;
 
 __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int n, double box_size, double* result) {
     unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int i = (blockIdx.z * gridDim.y + blockIdx.y) * blockDim.y + threadIdx.y;
 
     double pe = 0.0;
     Vec3 f = {0.0, 0.0, 0.0};
@@ -217,7 +217,10 @@ __global__ void d_compute_forces(const Vec3* position, Vec3* force, unsigned int
 
 inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, double box_size, double* d_result) {
     dim3 block_size_n(256, 1);
-    dim3 grid_size_n((n - 1) / block_size_n.x + 1, (n - 1) / block_size_n.y + 1);
+    unsigned int grid_y = ((n - 1) / block_size_n.y + 1);
+    unsigned int grid_y_clamped = (grid_y > 65535U) ? 65535U : grid_y;
+    unsigned int grid_z = (grid_y + grid_y_clamped - 1) / grid_y_clamped;
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1, grid_y_clamped, grid_z);
     checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_forces<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result);
@@ -230,7 +233,7 @@ inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, doub
 
 __global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsigned int n, double box_size) {
     unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int i = (blockIdx.z * gridDim.y + blockIdx.y) * blockDim.y + threadIdx.y;
 
     Vec3 f = {0.0, 0.0, 0.0};
     if (i < n && j < n && i != j) {
@@ -272,7 +275,10 @@ __global__ void d_compute_forces_no_pe(const Vec3* position, Vec3* force, unsign
 
 void g_compute_forces_no_pe(Vec3* position, Vec3* force, unsigned int n, double box_size) {
     dim3 block_size_n(256, 1);
-    dim3 grid_size_n((n - 1) / block_size_n.x + 1, (n - 1) / block_size_n.y + 1);
+    unsigned int grid_y = ((n - 1) / block_size_n.y + 1);
+    unsigned int grid_y_clamped = (grid_y > 65535U) ? 65535U : grid_y;
+    unsigned int grid_z = (grid_y + grid_y_clamped - 1) / grid_y_clamped;
+    dim3 grid_size_n((n - 1) / block_size_n.x + 1, grid_y_clamped, grid_z);
     checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
     d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(position, force, n, box_size);
     checkCudaErrors(cudaGetLastError());
