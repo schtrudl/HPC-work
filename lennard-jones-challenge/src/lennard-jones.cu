@@ -616,6 +616,456 @@ inline void g_compute_forces_no_pe_tiled3d(Vec3* position, Vec3* force, unsigned
     getLastCudaError();
 }
 
+// ─── Two-GPU helpers (range-based: each GPU processes its owned [i_start, i_start+n_own)) ──
+
+__global__ void d_compute_ke_range(const Vec3* velocity, unsigned int i_start, unsigned int n_own, double* result) {
+    unsigned int local_i = blockIdx.x * blockDim.x + threadIdx.x;
+    double ke = 0.0;
+    if (local_i < n_own) {
+        const Vec3 v = velocity[i_start + local_i];
+        ke = 0.5 * (v.x * v.x + v.y * v.y + v.z * v.z);
+    }
+    ke = block_reduce(ke);
+    if (threadIdx.x == 0) atomicAdd(result, ke);
+}
+
+inline double g_compute_ke_range(const Vec3* velocity, unsigned int i_start, unsigned int n_own, double* d_result) {
+    dim3 block_size(256);
+    dim3 grid((n_own - 1) / block_size.x + 1);
+    checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
+    d_compute_ke_range<<<grid, block_size>>>(velocity, i_start, n_own, d_result);
+    getLastCudaError();
+    double ke;
+    checkCudaErrors(cudaMemcpy(&ke, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return ke;
+}
+
+__global__ void d_first_update_range(Vec3* positions, Vec3* velocities, Vec3* forces, unsigned int i_start, unsigned int n_own, double box_size) {
+    unsigned int local_i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (local_i >= n_own) return;
+    unsigned int i = i_start + local_i;
+
+    const Vec3 force = forces[i];
+    Vec3 vel = velocities[i];
+    vel.x += 0.5 * DT * force.x;
+    vel.y += 0.5 * DT * force.y;
+    vel.z += 0.5 * DT * force.z;
+    velocities[i] = vel;
+
+    Vec3 pos = positions[i];
+    pos.x = fmod(pos.x + DT * vel.x, box_size);
+    pos.y = fmod(pos.y + DT * vel.y, box_size);
+    pos.z = fmod(pos.z + DT * vel.z, box_size);
+    if (pos.x < 0.0) pos.x += box_size;
+    if (pos.y < 0.0) pos.y += box_size;
+    if (pos.z < 0.0) pos.z += box_size;
+    positions[i] = pos;
+}
+
+inline void g_first_update_range(Vec3* pos, Vec3* vel, Vec3* force, unsigned int i_start, unsigned int n_own, double box_size, cudaStream_t stream) {
+    dim3 block_size(256);
+    dim3 grid((n_own - 1) / block_size.x + 1);
+    d_first_update_range<<<grid, block_size, 0, stream>>>(pos, vel, force, i_start, n_own, box_size);
+    getLastCudaError();
+}
+
+__global__ void d_second_update_range(Vec3* velocities, Vec3* forces, unsigned int i_start, unsigned int n_own) {
+    unsigned int local_i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (local_i >= n_own) return;
+    unsigned int i = i_start + local_i;
+
+    Vec3 vel = velocities[i];
+    const Vec3 force = forces[i];
+    vel.x += 0.5 * DT * force.x;
+    vel.y += 0.5 * DT * force.y;
+    vel.z += 0.5 * DT * force.z;
+    velocities[i] = vel;
+}
+
+inline void g_second_update_range(Vec3* vel, Vec3* force, unsigned int i_start, unsigned int n_own, cudaStream_t stream) {
+    dim3 block_size(256);
+    dim3 grid((n_own - 1) / block_size.x + 1);
+    d_second_update_range<<<grid, block_size, 0, stream>>>(vel, force, i_start, n_own);
+    getLastCudaError();
+}
+
+// Force with PE, cell-list, for owned range only. Direct write to force[i] (no atomics on force).
+__global__ void d_compute_forces_tiled3d_range(const Vec3* position, Vec3* force, unsigned int i_start, unsigned int n_own, double box_size, double* result, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
+    unsigned int local_i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (local_i >= n_own) return;
+    unsigned int i = i_start + local_i;
+
+    const Vec3 pi = position[i];
+    Vec3 f = {0.0, 0.0, 0.0};
+    double pe = 0.0;
+
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = (ci / nx) % ny;
+    int ciz = ci / (nx * ny);
+
+    for (int ndz = -1; ndz <= 1; ndz++) {
+        int ncz = (ciz + ndz + nz) % nz;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + ny) % ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + nx) % nx;
+                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
+                for (int j = head[nc]; j >= 0; j = next[j]) {
+                    if ((unsigned int)j == i) continue;
+                    const Vec3 pj = position[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
+                    double dz = pi.z - pj.z;
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    dz -= box_size * nearbyint(dz / box_size);
+                    double r2 = dx * dx + dy * dy + dz * dz;
+                    if (r2 >= rc2 || r2 == 0.0) continue;
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    f.x += fij * dx;
+                    f.y += fij * dy;
+                    f.z += fij * dz;
+                    pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
+                }
+            }
+        }
+    }
+    force[i] = f;
+    atomicAdd(result, pe);
+}
+
+inline double g_compute_forces_tiled3d_range(Vec3* position, Vec3* force, unsigned int i_start, unsigned int n_own, double box_size, double* d_result, const Tiled3DState* st, cudaStream_t stream) {
+    dim3 block_size(256);
+    dim3 grid((n_own - 1) / block_size.x + 1);
+    checkCudaErrors(cudaMemsetAsync(d_result, 0, sizeof(double), stream));
+    d_compute_forces_tiled3d_range<<<grid, block_size, 0, stream>>>(position, force, i_start, n_own, box_size, d_result, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
+    getLastCudaError();
+    checkCudaErrors(cudaStreamSynchronize(stream));
+    double pe;
+    checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
+    return pe;
+}
+
+// Force without PE, cell-list, for owned range only.
+__global__ void d_compute_forces_no_pe_tiled3d_range(const Vec3* position, Vec3* force, unsigned int i_start, unsigned int n_own, double box_size, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
+    unsigned int local_i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (local_i >= n_own) return;
+    unsigned int i = i_start + local_i;
+
+    const Vec3 pi = position[i];
+    Vec3 f = {0.0, 0.0, 0.0};
+
+    int ci = pcell[i];
+    int cix = ci % nx;
+    int ciy = (ci / nx) % ny;
+    int ciz = ci / (nx * ny);
+
+    for (int ndz = -1; ndz <= 1; ndz++) {
+        int ncz = (ciz + ndz + nz) % nz;
+        for (int ndy = -1; ndy <= 1; ndy++) {
+            int ncy = (ciy + ndy + ny) % ny;
+            for (int ndx = -1; ndx <= 1; ndx++) {
+                int ncx = (cix + ndx + nx) % nx;
+                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
+                for (int j = head[nc]; j >= 0; j = next[j]) {
+                    if ((unsigned int)j == i) continue;
+                    const Vec3 pj = position[j];
+                    double dx = pi.x - pj.x;
+                    double dy = pi.y - pj.y;
+                    double dz = pi.z - pj.z;
+                    dx -= box_size * nearbyint(dx / box_size);
+                    dy -= box_size * nearbyint(dy / box_size);
+                    dz -= box_size * nearbyint(dz / box_size);
+                    double r2 = dx * dx + dy * dy + dz * dz;
+                    if (r2 >= rc2 || r2 == 0.0) continue;
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    f.x += fij * dx;
+                    f.y += fij * dy;
+                    f.z += fij * dz;
+                }
+            }
+        }
+    }
+    force[i] = f;
+}
+
+inline void g_compute_forces_no_pe_tiled3d_range(Vec3* position, Vec3* force, unsigned int i_start, unsigned int n_own, double box_size, const Tiled3DState* st, cudaStream_t stream) {
+    dim3 block_size(256);
+    dim3 grid((n_own - 1) / block_size.x + 1);
+    d_compute_forces_no_pe_tiled3d_range<<<grid, block_size, 0, stream>>>(position, force, i_start, n_own, box_size, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
+    getLastCudaError();
+}
+
+// ─── TwoGPUState ─────────────────────────────────────────────────────────────
+
+typedef struct {
+    int gpu_ids[NUM_GPUS];
+    ncclComm_t comms[NUM_GPUS];
+    cudaStream_t streams[NUM_GPUS];
+
+    Vec3* d_position[NUM_GPUS];  // [n] full position array replicated on each GPU
+    Vec3* d_velocity[NUM_GPUS];  // [n] velocities (only owned range is live)
+    Vec3* d_force[NUM_GPUS];  // [n] forces    (only owned range is written)
+    double* d_result[NUM_GPUS];  // scalar accumulator
+
+    unsigned int n_start[NUM_GPUS];
+    unsigned int n_own[NUM_GPUS];
+    unsigned int n;
+
+    Tiled3DState tiled[NUM_GPUS];
+} TwoGPUState;
+
+// Exchange owned position slices between GPUs using NCCL P2P send/recv.
+// GPU g contributes d_position[g][n_start[g]..n_start[g]+n_own[g]) and
+// receives the complementary slice from the other GPU.
+// Called from the main (non-OMP) thread.
+static void exchange_positions_two_gpu(TwoGPUState* st) {
+    NCCL_CHECK(ncclGroupStart());
+    for (int g = 0; g < NUM_GPUS; g++) {
+        int other = 1 - g;
+        checkCudaErrors(cudaSetDevice(st->gpu_ids[g]));
+        NCCL_CHECK(ncclSend((const void*)(st->d_position[g] + st->n_start[g]), (size_t)st->n_own[g] * 3, ncclDouble, other, st->comms[g], st->streams[g]));
+        NCCL_CHECK(ncclRecv((void*)(st->d_position[g] + st->n_start[other]), (size_t)st->n_own[other] * 3, ncclDouble, other, st->comms[g], st->streams[g]));
+    }
+    NCCL_CHECK(ncclGroupEnd());
+    // Wait for NCCL transfers to land before next kernel launch
+    for (int g = 0; g < NUM_GPUS; g++) {
+        checkCudaErrors(cudaSetDevice(st->gpu_ids[g]));
+        checkCudaErrors(cudaStreamSynchronize(st->streams[g]));
+    }
+}
+
+// Build the cell list once from GPU0's positions, copy CPU arrays to GPU1's
+// host buffers, then upload to both GPUs concurrently via OMP.
+static void tiled3d_rebuild_two_gpu(TwoGPUState* st) {
+    unsigned int n = st->n;
+    Tiled3DState* st0 = &st->tiled[0];
+    Tiled3DState* st1 = &st->tiled[1];
+
+    // Download positions from GPU 0 (they are identical on both GPUs after exchange)
+    checkCudaErrors(cudaSetDevice(st->gpu_ids[0]));
+    checkCudaErrors(cudaMemcpy(st0->h_pos_tmp, st->d_position[0], n * sizeof(Vec3), cudaMemcpyDeviceToHost));
+
+    // Build CPU-side cell list (same algorithm as tiled3d_rebuild)
+    for (int c = 0; c < st0->n_cells; c++)
+        st0->h_head[c] = -1;
+    for (int i = (int)n - 1; i >= 0; i--) {
+        int cx = (int)(st0->h_pos_tmp[i].x * st0->inv_cx);
+        int cy = (int)(st0->h_pos_tmp[i].y * st0->inv_cy);
+        int cz = (int)(st0->h_pos_tmp[i].z * st0->inv_cz);
+        if (cx < 0)
+            cx = 0;
+        else if (cx >= st0->nx)
+            cx = st0->nx - 1;
+        if (cy < 0)
+            cy = 0;
+        else if (cy >= st0->ny)
+            cy = st0->ny - 1;
+        if (cz < 0)
+            cz = 0;
+        else if (cz >= st0->nz)
+            cz = st0->nz - 1;
+        int c = cell_index_3d(cx, cy, cz, st0->nx, st0->ny);
+        st0->h_pcell[i] = c;
+        st0->h_next[i] = st0->h_head[c];
+        st0->h_head[c] = i;
+        st0->h_ref_x[i] = st0->h_pos_tmp[i].x;
+        st0->h_ref_y[i] = st0->h_pos_tmp[i].y;
+        st0->h_ref_z[i] = st0->h_pos_tmp[i].z;
+    }
+
+    // Mirror the computed arrays into GPU1's host buffers (same dimensions)
+    memcpy(st1->h_head, st0->h_head, st0->n_cells * sizeof(int));
+    memcpy(st1->h_next, st0->h_next, n * sizeof(int));
+    memcpy(st1->h_pcell, st0->h_pcell, n * sizeof(int));
+    memcpy(st1->h_ref_x, st0->h_ref_x, n * sizeof(double));
+    memcpy(st1->h_ref_y, st0->h_ref_y, n * sizeof(double));
+    memcpy(st1->h_ref_z, st0->h_ref_z, n * sizeof(double));
+
+// Upload to both GPUs concurrently (async H2D, then device-sync per thread)
+#pragma omp parallel num_threads(NUM_GPUS)
+    {
+        int g = omp_get_thread_num();
+        Tiled3DState* stg = &st->tiled[g];
+        checkCudaErrors(cudaSetDevice(st->gpu_ids[g]));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_head, stg->h_head, st0->n_cells * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_next, stg->h_next, n * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_pcell, stg->h_pcell, n * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_ref_x, stg->h_ref_x, n * sizeof(double), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_ref_y, stg->h_ref_y, n * sizeof(double), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpyAsync(stg->d_ref_z, stg->h_ref_z, n * sizeof(double), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+}
+
+SimulationResult run_simulation_two_gpu(Particle* particles, unsigned int n, unsigned int nsteps, double box_size) {
+    SimulationResult out;
+
+    TwoGPUState st;
+    st.n = n;
+    st.gpu_ids[0] = 0;
+    st.gpu_ids[1] = 1;
+    st.n_start[0] = 0;
+    st.n_own[0] = n / 2;
+    st.n_start[1] = n / 2;
+    st.n_own[1] = n - n / 2;
+
+    // Initialize NCCL communicators (single-process multi-GPU)
+    {
+        int devs[NUM_GPUS] = {0, 1};
+        NCCL_CHECK(ncclCommInitAll(st.comms, NUM_GPUS, devs));
+    }
+
+// Per-GPU initialization in parallel: streams, device buffers, async data upload
+#pragma omp parallel num_threads(NUM_GPUS)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        checkCudaErrors(cudaStreamCreate(&st.streams[g]));
+
+        checkCudaErrors(cudaMalloc((void**)&st.d_position[g], n * sizeof(Vec3)));
+        checkCudaErrors(cudaMalloc((void**)&st.d_velocity[g], n * sizeof(Vec3)));
+        checkCudaErrors(cudaMalloc((void**)&st.d_force[g], n * sizeof(Vec3)));
+        checkCudaErrors(cudaMalloc((void**)&st.d_result[g], sizeof(double)));
+
+        // Async H2D upload on each GPU's stream so both transfers run concurrently
+        static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "");
+        checkCudaErrors(cudaMemcpy2DAsync(st.d_position[g], sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, st.streams[g]));
+        static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "");
+        checkCudaErrors(cudaMemcpy2DAsync(st.d_velocity[g], sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, st.streams[g]));
+
+        init_tiled3d_state(&st.tiled[g], n, box_size);
+        checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+    }
+
+    // Initial cell list (build once on CPU from GPU0, upload both)
+    tiled3d_rebuild_two_gpu(&st);
+
+    // Compute initial energies (both GPUs simultaneously)
+    double start_pe = 0.0, start_ke = 0.0;
+#pragma omp parallel num_threads(NUM_GPUS) reduction(+ : start_pe) reduction(+ : start_ke)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        double pe_g = g_compute_forces_tiled3d_range(st.d_position[g], st.d_force[g], st.n_start[g], st.n_own[g], box_size, st.d_result[g], &st.tiled[g], st.streams[g]);
+        double ke_g = g_compute_ke_range(st.d_velocity[g], st.n_start[g], st.n_own[g], st.d_result[g]);
+        start_pe += pe_g;
+        start_ke += ke_g;
+    }
+    out.start_potential = start_pe;
+    out.start_kinetic = start_ke;
+    out.start_total = start_ke + start_pe;
+
+    // ── Main loop ──────────────────────────────────────────────────────────────
+    for (unsigned int step = 1; step < nsteps; step++) {
+// 1. First leapfrog half-kick + position update (each GPU: own particles only)
+#pragma omp parallel num_threads(NUM_GPUS)
+        {
+            int g = omp_get_thread_num();
+            checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+            g_first_update_range(st.d_position[g], st.d_velocity[g], st.d_force[g], st.n_start[g], st.n_own[g], box_size, st.streams[g]);
+            checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+        }
+
+        // 2. Broadcast updated positions so both GPUs have the full array
+        exchange_positions_two_gpu(&st);
+
+        // 3. Check rebuild against GPU 0's (now complete) position array
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[0]));
+        if (tiled3d_needs_rebuild(&st.tiled[0], st.d_position[0], n, box_size)) {
+            tiled3d_rebuild_two_gpu(&st);
+        }
+
+// 4. Force computation (no PE) on both GPUs concurrently
+#pragma omp parallel num_threads(NUM_GPUS)
+        {
+            int g = omp_get_thread_num();
+            checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+            g_compute_forces_no_pe_tiled3d_range(st.d_position[g], st.d_force[g], st.n_start[g], st.n_own[g], box_size, &st.tiled[g], st.streams[g]);
+            checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+        }
+
+// 5. Second leapfrog half-kick (own particles only)
+#pragma omp parallel num_threads(NUM_GPUS)
+        {
+            int g = omp_get_thread_num();
+            checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+            g_second_update_range(st.d_velocity[g], st.d_force[g], st.n_start[g], st.n_own[g], st.streams[g]);
+            checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+        }
+    }
+
+// ── Final step with energy ─────────────────────────────────────────────────
+#pragma omp parallel num_threads(NUM_GPUS)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        g_first_update_range(st.d_position[g], st.d_velocity[g], st.d_force[g], st.n_start[g], st.n_own[g], box_size, st.streams[g]);
+        checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+    }
+
+    exchange_positions_two_gpu(&st);
+
+    checkCudaErrors(cudaSetDevice(st.gpu_ids[0]));
+    if (tiled3d_needs_rebuild(&st.tiled[0], st.d_position[0], n, box_size)) {
+        tiled3d_rebuild_two_gpu(&st);
+    }
+
+    double final_pe = 0.0, final_ke = 0.0;
+#pragma omp parallel num_threads(NUM_GPUS) reduction(+ : final_pe) reduction(+ : final_ke)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        double pe_g = g_compute_forces_tiled3d_range(st.d_position[g], st.d_force[g], st.n_start[g], st.n_own[g], box_size, st.d_result[g], &st.tiled[g], st.streams[g]);
+        final_pe += pe_g;
+    }
+
+#pragma omp parallel num_threads(NUM_GPUS)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        g_second_update_range(st.d_velocity[g], st.d_force[g], st.n_start[g], st.n_own[g], st.streams[g]);
+        checkCudaErrors(cudaStreamSynchronize(st.streams[g]));
+    }
+
+#pragma omp parallel num_threads(NUM_GPUS) reduction(+ : final_ke)
+    {
+        int g = omp_get_thread_num();
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        final_ke += g_compute_ke_range(st.d_velocity[g], st.n_start[g], st.n_own[g], st.d_result[g]);
+    }
+
+    out.final_potential = final_pe;
+    out.final_kinetic = final_ke;
+    out.final_total = final_ke + final_pe;
+
+// ── Copy owned results back to host (both GPUs in parallel) ───────────────
+#pragma omp parallel num_threads(NUM_GPUS)
+    {
+        int g = omp_get_thread_num();
+        unsigned int i0 = st.n_start[g];
+        unsigned int n_ow = st.n_own[g];
+        checkCudaErrors(cudaSetDevice(st.gpu_ids[g]));
+        static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "");
+        checkCudaErrors(cudaMemcpy2D(&particles[i0].x, sizeof(Particle), st.d_position[g] + i0, sizeof(Vec3), sizeof(Vec3), n_ow, cudaMemcpyDeviceToHost));
+        static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "");
+        checkCudaErrors(cudaMemcpy2D(&particles[i0].vx, sizeof(Particle), st.d_velocity[g] + i0, sizeof(Vec3), sizeof(Vec3), n_ow, cudaMemcpyDeviceToHost));
+        static_assert(sizeof(Particle) - offsetof(Particle, fx) == sizeof(Vec3), "");
+        checkCudaErrors(cudaMemcpy2D(&particles[i0].fx, sizeof(Particle), st.d_force[g] + i0, sizeof(Vec3), sizeof(Vec3), n_ow, cudaMemcpyDeviceToHost));
+    }
+
+    out.n = n;
+    out.particles = particles;
+    return out;
+}
+
 SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsigned int nsteps, double box_size) {
     SimulationResult out;
 
@@ -643,7 +1093,7 @@ SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsig
     out.start_kinetic = g_compute_ke(d_velocity, n, d_result);
     out.start_total = out.start_kinetic + out.start_potential;
 
-#if DEBUG
+#if DEBUGG
     double start = omp_get_wtime();
 #endif
 
@@ -665,7 +1115,7 @@ SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsig
     out.final_kinetic = g_compute_ke(d_velocity, n, d_result);
     out.final_total = out.final_kinetic + out.final_potential;
 
-#if DEBUG
+#if DEBUGG
     double stop = omp_get_wtime();
     printf("Time(compute): %f s\n", stop - start);
 #endif
@@ -909,7 +1359,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     (void)log_steps;
     if (n <= 5000U) {
         return run_simulation_basic(particles, n, nsteps, box_size);
-    } else {
+    } else if (n <= 88000U) {
         return run_simulation_tiled(particles, n, nsteps, box_size);
+    } else {  // this is sad
+        return run_simulation_two_gpu(particles, n, nsteps, box_size);
     }
 }
