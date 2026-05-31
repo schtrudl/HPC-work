@@ -2,8 +2,13 @@
 CC = nvcc
 
 # Compiler flags
-LDLIBS = -lm
+LDLIBS = -lm -lnccl
 CFLAGS = -Wno-deprecated-gpu-targets -gencode=arch=compute_70,code=sm_70 -O3 -Xcompiler --openmp,-march=native,-Wall
+
+# Optional compile-time override, e.g. CELL_SKIN=0.4 make lj.out
+ifneq ($(strip $(CELL_SKIN)),)
+CFLAGS += -DCELL_SKIN=$(CELL_SKIN)
+endif
 
 SRC=src
 

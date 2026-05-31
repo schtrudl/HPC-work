@@ -50,7 +50,6 @@ double compute_v_shift(void);
 double compute_forces(Particle* particles, unsigned int n, double box_size);
 double leapfrog_step(Particle* particles, unsigned int n, double box_size);
 SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps);
-SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsigned int nsteps, double box_size, int log_steps);
 
 #ifdef __cplusplus
 }
