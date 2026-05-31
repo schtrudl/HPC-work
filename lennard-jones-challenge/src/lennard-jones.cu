@@ -12,10 +12,10 @@
 
 #define Vec3 double3
 
-#define DEBUG 1
-#if DEBUG
+//#define DEBUGG 1
+#ifdef DEBUGG
     #define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
-    #define getLastCudaError(msg) __getLastCudaError(msg, __FILE__, __LINE__)
+    #define getLastCudaError() __getLastCudaError(__FILE__, __LINE__)
 
     #define CUDA_CHECK(cmd) \
         do { \
@@ -36,7 +36,7 @@
         } while (0)
 #else
     #define checkCudaErrors(val) (val)
-    #define getLastCudaError(msg) ((void)0)
+    #define getLastCudaError() ((void)0)
     #define CUDA_CHECK(cmd) (cmd)
     #define NCCL_CHECK(cmd) (cmd)
 #endif
@@ -48,7 +48,7 @@ void check(cudaError_t result, char const* const func, const char* const file, i
     }
 }
 
-inline void __getLastCudaError(const char* errorMessage, const char* file, const int line) {
+inline void __getLastCudaError(const char* file, const int line) {
     cudaError_t err = cudaGetLastError();
 
     if (cudaSuccess != err) {
@@ -58,7 +58,7 @@ inline void __getLastCudaError(const char* errorMessage, const char* file, const
             " %s : (%d) %s.\n",
             file,
             line,
-            errorMessage,
+            "Unknown error",
             (int)(err),
             cudaGetErrorString(err));
         exit(EXIT_FAILURE);
@@ -69,16 +69,6 @@ inline void __getLastCudaError(const char* errorMessage, const char* file, const
 
 double random_double(void) {
     return (double)rand() / (double)RAND_MAX;
-}
-
-// compute kinetic energy of the system
-double compute_ke(const Particle* particles, unsigned int n) {
-    double ke = 0.0;
-    for (unsigned int i = 0; i < n; ++i) {
-        const Particle* p = &particles[i];
-        ke += 0.5 * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
-    }
-    return ke;
 }
 
 // special function that performs warp-level reduction to sum
@@ -131,7 +121,7 @@ inline double g_compute_ke(Vec3* velocity, unsigned int n, double* d_result) {
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_ke<<<grid_size_n, block_size_n>>>(velocity, n, d_result);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 
     double ke;
     checkCudaErrors(cudaMemcpy(&ke, d_result, sizeof(double), cudaMemcpyDeviceToHost));
@@ -173,7 +163,7 @@ inline void g_first_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, do
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     d_first_update<<<grid_size_n, block_size_n>>>(pos, vel, force, n, box_size);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 }
 
 // shift potential to ensure it goes to zero at the cutoff distance, improving energy conservation
@@ -246,7 +236,7 @@ inline double g_compute_forces(Vec3* position, Vec3* force, unsigned int n, doub
     checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_forces<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 
     double pe;
     checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
@@ -303,7 +293,7 @@ void g_compute_forces_no_pe(Vec3* position, Vec3* force, unsigned int n, double 
     dim3 grid_size_n((n - 1) / block_size_n.x + 1, grid_y_clamped, grid_z);
     checkCudaErrors(cudaMemset(force, 0, n * sizeof(Vec3)));
     d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(position, force, n, box_size);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 }
 
 __global__ void d_second_update(Vec3* velocities, Vec3* forces, unsigned int n, double box_size) {
@@ -322,7 +312,7 @@ inline void g_second_update(Vec3* pos, Vec3* vel, Vec3* force, unsigned int n, d
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     d_second_update<<<grid_size_n, block_size_n>>>(vel, force, n, box_size);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 }
 
 #ifndef CELL_SKIN
@@ -391,26 +381,6 @@ void init_tiled3d_state(Tiled3DState* st, unsigned int n, double box_size) {
     st->h_ref_y = (double*)malloc(n * sizeof(double));
     st->h_ref_z = (double*)malloc(n * sizeof(double));
     st->h_pos_tmp = (Vec3*)malloc(n * sizeof(Vec3));
-}
-
-void free_tiled3d_state(Tiled3DState* st) {
-    if (st->d_head) checkCudaErrors(cudaFree(st->d_head));
-    if (st->d_next) checkCudaErrors(cudaFree(st->d_next));
-    if (st->d_pcell) checkCudaErrors(cudaFree(st->d_pcell));
-    if (st->d_ref_x) checkCudaErrors(cudaFree(st->d_ref_x));
-    if (st->d_ref_y) checkCudaErrors(cudaFree(st->d_ref_y));
-    if (st->d_ref_z) checkCudaErrors(cudaFree(st->d_ref_z));
-    if (st->d_rebuild_flag) checkCudaErrors(cudaFree(st->d_rebuild_flag));
-
-    free(st->h_head);
-    free(st->h_next);
-    free(st->h_pcell);
-    free(st->h_ref_x);
-    free(st->h_ref_y);
-    free(st->h_ref_z);
-    free(st->h_pos_tmp);
-
-    memset(st, 0, sizeof(*st));
 }
 
 __global__ void d_tiled3d_needs_rebuild(const Vec3* position, const double* ref_x, const double* ref_y, const double* ref_z, unsigned int n, double box_size, int* needs_rebuild) {
@@ -502,7 +472,7 @@ bool tiled3d_needs_rebuild(Tiled3DState* st, const Vec3* d_position, unsigned in
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     checkCudaErrors(cudaMemset(st->d_rebuild_flag, 0, sizeof(int)));
     d_tiled3d_needs_rebuild<<<grid_size_n, block_size_n>>>(d_position, st->d_ref_x, st->d_ref_y, st->d_ref_z, n, box_size, st->d_rebuild_flag);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 
     int flag = 0;
     checkCudaErrors(cudaMemcpy(&flag, st->d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
@@ -632,7 +602,7 @@ inline double g_compute_forces_tiled3d(Vec3* position, Vec3* force, unsigned int
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
     d_compute_forces_tiled3d<<<grid_size_n, block_size_n>>>(position, force, n, box_size, d_result, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 
     double pe;
     checkCudaErrors(cudaMemcpy(&pe, d_result, sizeof(double), cudaMemcpyDeviceToHost));
@@ -643,7 +613,7 @@ inline void g_compute_forces_no_pe_tiled3d(Vec3* position, Vec3* force, unsigned
     dim3 block_size_n(256);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
     d_compute_forces_no_pe_tiled3d<<<grid_size_n, block_size_n>>>(position, force, n, box_size, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
-    checkCudaErrors(cudaGetLastError());
+    getLastCudaError();
 }
 
 SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsigned int nsteps, double box_size) {
@@ -706,378 +676,6 @@ SimulationResult run_simulation_tiled(Particle* particles, unsigned int n, unsig
     checkCudaErrors(cudaMemcpy2D(&particles[0].vx, sizeof(Particle), d_velocity, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
     static_assert(sizeof(Particle) - offsetof(Particle, fx) == sizeof(Vec3), "Particle force fields are not layout-compatible with double3");
     checkCudaErrors(cudaMemcpy2D(&particles[0].fx, sizeof(Particle), d_force, sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
-
-    out.n = n;
-    out.particles = particles;
-    return out;
-}
-
-__global__ void d_compute_forces_tiled3d_range(const Vec3* position, Vec3* force, unsigned int n, unsigned int i_begin, unsigned int i_count, double box_size, double* result, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
-    unsigned int k = blockIdx.x * blockDim.x + threadIdx.x;
-    if (k >= i_count) {
-        return;
-    }
-    unsigned int i = i_begin + k;
-
-    const Vec3 pi = position[i];
-    Vec3 f = {0.0, 0.0, 0.0};
-    double pe = 0.0;
-
-    int ci = pcell[i];
-    int cix = ci % nx;
-    int ciy = (ci / nx) % ny;
-    int ciz = ci / (nx * ny);
-
-    for (int ndz = -1; ndz <= 1; ndz++) {
-        int ncz = (ciz + ndz + nz) % nz;
-        for (int ndy = -1; ndy <= 1; ndy++) {
-            int ncy = (ciy + ndy + ny) % ny;
-            for (int ndx = -1; ndx <= 1; ndx++) {
-                int ncx = (cix + ndx + nx) % nx;
-                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
-                for (int j = head[nc]; j >= 0; j = next[j]) {
-                    if ((unsigned int)j == i) {
-                        continue;
-                    }
-                    const Vec3 pj = position[j];
-                    double dx = pi.x - pj.x;
-                    double dy = pi.y - pj.y;
-                    double dz = pi.z - pj.z;
-
-                    dx -= box_size * nearbyint(dx / box_size);
-                    dy -= box_size * nearbyint(dy / box_size);
-                    dz -= box_size * nearbyint(dz / box_size);
-
-                    double r2 = dx * dx + dy * dy + dz * dz;
-                    if (r2 >= rc2 || r2 == 0.0) {
-                        continue;
-                    }
-
-                    double sr2 = (SIGMA * SIGMA) / r2;
-                    double sr6 = sr2 * sr2 * sr2;
-                    double sr12 = sr6 * sr6;
-
-                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-                    f.x += fij * dx;
-                    f.y += fij * dy;
-                    f.z += fij * dz;
-
-                    pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
-                }
-            }
-        }
-    }
-
-    force[i] = f;
-    atomicAdd(result, pe);
-}
-
-__global__ void d_compute_forces_no_pe_tiled3d_range(const Vec3* position, Vec3* force, unsigned int n, unsigned int i_begin, unsigned int i_count, double box_size, const int* head, const int* next, const int* pcell, int nx, int ny, int nz) {
-    unsigned int k = blockIdx.x * blockDim.x + threadIdx.x;
-    if (k >= i_count) {
-        return;
-    }
-    unsigned int i = i_begin + k;
-
-    const Vec3 pi = position[i];
-    Vec3 f = {0.0, 0.0, 0.0};
-
-    int ci = pcell[i];
-    int cix = ci % nx;
-    int ciy = (ci / nx) % ny;
-    int ciz = ci / (nx * ny);
-
-    for (int ndz = -1; ndz <= 1; ndz++) {
-        int ncz = (ciz + ndz + nz) % nz;
-        for (int ndy = -1; ndy <= 1; ndy++) {
-            int ncy = (ciy + ndy + ny) % ny;
-            for (int ndx = -1; ndx <= 1; ndx++) {
-                int ncx = (cix + ndx + nx) % nx;
-                int nc = cell_index_3d(ncx, ncy, ncz, nx, ny);
-                for (int j = head[nc]; j >= 0; j = next[j]) {
-                    if ((unsigned int)j == i) {
-                        continue;
-                    }
-                    const Vec3 pj = position[j];
-                    double dx = pi.x - pj.x;
-                    double dy = pi.y - pj.y;
-                    double dz = pi.z - pj.z;
-
-                    dx -= box_size * nearbyint(dx / box_size);
-                    dy -= box_size * nearbyint(dy / box_size);
-                    dz -= box_size * nearbyint(dz / box_size);
-
-                    double r2 = dx * dx + dy * dy + dz * dz;
-                    if (r2 >= rc2 || r2 == 0.0) {
-                        continue;
-                    }
-
-                    double sr2 = (SIGMA * SIGMA) / r2;
-                    double sr6 = sr2 * sr2 * sr2;
-                    double sr12 = sr6 * sr6;
-
-                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-                    f.x += fij * dx;
-                    f.y += fij * dy;
-                    f.z += fij * dz;
-                }
-            }
-        }
-    }
-
-    force[i] = f;
-}
-
-inline void g_first_update_range(Vec3* pos, Vec3* vel, Vec3* force, unsigned int i_begin, unsigned int i_count, double box_size, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((i_count - 1) / block_size_n.x + 1);
-    d_first_update<<<grid_size_n, block_size_n, 0, stream>>>(pos + i_begin, vel + i_begin, force + i_begin, i_count, box_size);
-    checkCudaErrors(cudaGetLastError());
-}
-
-inline void g_second_update_range(Vec3* vel, Vec3* force, unsigned int i_begin, unsigned int i_count, double box_size, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((i_count - 1) / block_size_n.x + 1);
-    d_second_update<<<grid_size_n, block_size_n, 0, stream>>>(vel + i_begin, force + i_begin, i_count, box_size);
-    checkCudaErrors(cudaGetLastError());
-}
-
-inline void g_compute_forces_no_pe_tiled3d_range(Vec3* position, Vec3* force, unsigned int n, unsigned int i_begin, unsigned int i_count, double box_size, const Tiled3DState* st, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((i_count - 1) / block_size_n.x + 1);
-    d_compute_forces_no_pe_tiled3d_range<<<grid_size_n, block_size_n, 0, stream>>>(position, force, n, i_begin, i_count, box_size, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
-    checkCudaErrors(cudaGetLastError());
-}
-
-inline void g_compute_forces_tiled3d_range(Vec3* position, Vec3* force, unsigned int n, unsigned int i_begin, unsigned int i_count, double box_size, double* d_result, const Tiled3DState* st, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((i_count - 1) / block_size_n.x + 1);
-    checkCudaErrors(cudaMemsetAsync(d_result, 0, sizeof(double), stream));
-    d_compute_forces_tiled3d_range<<<grid_size_n, block_size_n, 0, stream>>>(position, force, n, i_begin, i_count, box_size, d_result, st->d_head, st->d_next, st->d_pcell, st->nx, st->ny, st->nz);
-    checkCudaErrors(cudaGetLastError());
-}
-
-inline void g_compute_ke_range(Vec3* velocity, unsigned int i_begin, unsigned int i_count, double* d_result, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((i_count - 1) / block_size_n.x + 1);
-    checkCudaErrors(cudaMemsetAsync(d_result, 0, sizeof(double), stream));
-    d_compute_ke<<<grid_size_n, block_size_n, 0, stream>>>(velocity + i_begin, i_count, d_result);
-    checkCudaErrors(cudaGetLastError());
-}
-
-inline void tiled3d_mark_rebuild_async(Tiled3DState* st, const Vec3* d_position, unsigned int n, double box_size, cudaStream_t stream) {
-    dim3 block_size_n(256);
-    dim3 grid_size_n((n - 1) / block_size_n.x + 1);
-    checkCudaErrors(cudaMemsetAsync(st->d_rebuild_flag, 0, sizeof(int), stream));
-    d_tiled3d_needs_rebuild<<<grid_size_n, block_size_n, 0, stream>>>(d_position, st->d_ref_x, st->d_ref_y, st->d_ref_z, n, box_size, st->d_rebuild_flag);
-    checkCudaErrors(cudaGetLastError());
-}
-
-SimulationResult run_simulation_tiled_nccl_2gpu(Particle* particles, unsigned int n, unsigned int nsteps, double box_size) {
-    SimulationResult out;
-
-    int device_count = 0;
-    checkCudaErrors(cudaGetDeviceCount(&device_count));
-    if (device_count < 2 || n < 2) {
-        return run_simulation_tiled(particles, n, nsteps, box_size);
-    }
-
-    const int devs[NUM_GPUS] = {0, 1};
-    const unsigned int split0 = n / 2;
-    const unsigned int split1 = n - split0;
-    const unsigned int begin[NUM_GPUS] = {0U, split0};
-    const unsigned int count[NUM_GPUS] = {split0, split1};
-    const int peer[NUM_GPUS] = {1, 0};
-
-    ncclComm_t comms[NUM_GPUS];
-    cudaStream_t streams[NUM_GPUS];
-    Vec3* d_position[NUM_GPUS];
-    Vec3* d_velocity[NUM_GPUS];
-    Vec3* d_force[NUM_GPUS];
-    double* d_result[NUM_GPUS];
-    Tiled3DState tiled[NUM_GPUS];
-
-    NCCL_CHECK(ncclCommInitAll(comms, NUM_GPUS, devs));
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaStreamCreate(&streams[r]));
-        checkCudaErrors(cudaMalloc((void**)&d_position[r], n * sizeof(Vec3)));
-        checkCudaErrors(cudaMalloc((void**)&d_velocity[r], n * sizeof(Vec3)));
-        checkCudaErrors(cudaMalloc((void**)&d_force[r], n * sizeof(Vec3)));
-        checkCudaErrors(cudaMalloc((void**)&d_result[r], sizeof(double)));
-
-        static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
-        checkCudaErrors(cudaMemcpy2D(d_position[r], sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
-        static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
-        checkCudaErrors(cudaMemcpy2D(d_velocity[r], sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
-
-        init_tiled3d_state(&tiled[r], n, box_size);
-        tiled3d_rebuild(&tiled[r], d_position[r], n);
-    }
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_compute_forces_tiled3d_range(d_position[r], d_force[r], n, begin[r], count[r], box_size, d_result[r], &tiled[r], streams[r]);
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.start_potential, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_compute_ke_range(d_velocity[r], begin[r], count[r], d_result[r], streams[r]);
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
-    out.start_total = out.start_kinetic + out.start_potential;
-
-#if DEBUG
-    double start = omp_get_wtime();
-#endif
-
-    for (unsigned int step = 1; step < nsteps; step++) {
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            g_first_update_range(d_position[r], d_velocity[r], d_force[r], begin[r], count[r], box_size, streams[r]);
-        }
-
-        NCCL_CHECK(ncclGroupStart());
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            NCCL_CHECK(ncclSend((const void*)(d_position[r] + begin[r]), (size_t)count[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclRecv((void*)(d_position[r] + begin[peer[r]]), (size_t)count[peer[r]] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        }
-        NCCL_CHECK(ncclGroupEnd());
-
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            tiled3d_mark_rebuild_async(&tiled[r], d_position[r], n, box_size, streams[r]);
-        }
-        NCCL_CHECK(ncclGroupStart());
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            NCCL_CHECK(ncclAllReduce((const void*)tiled[r].d_rebuild_flag, (void*)tiled[r].d_rebuild_flag, 1, ncclInt, ncclMax, comms[r], streams[r]));
-        }
-        NCCL_CHECK(ncclGroupEnd());
-
-        int rebuild = 0;
-        checkCudaErrors(cudaSetDevice(devs[0]));
-        checkCudaErrors(cudaStreamSynchronize(streams[0]));
-        checkCudaErrors(cudaMemcpy(&rebuild, tiled[0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
-        if (rebuild != 0) {
-            for (int r = 0; r < NUM_GPUS; r++) {
-                checkCudaErrors(cudaSetDevice(devs[r]));
-                checkCudaErrors(cudaStreamSynchronize(streams[r]));
-                tiled3d_rebuild(&tiled[r], d_position[r], n);
-            }
-        }
-
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            g_compute_forces_no_pe_tiled3d_range(d_position[r], d_force[r], n, begin[r], count[r], box_size, &tiled[r], streams[r]);
-            g_second_update_range(d_velocity[r], d_force[r], begin[r], count[r], box_size, streams[r]);
-        }
-    }
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_first_update_range(d_position[r], d_velocity[r], d_force[r], begin[r], count[r], box_size, streams[r]);
-    }
-
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclSend((const void*)(d_position[r] + begin[r]), (size_t)count[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclRecv((void*)(d_position[r] + begin[peer[r]]), (size_t)count[peer[r]] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        tiled3d_mark_rebuild_async(&tiled[r], d_position[r], n, box_size, streams[r]);
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)tiled[r].d_rebuild_flag, (void*)tiled[r].d_rebuild_flag, 1, ncclInt, ncclMax, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-
-    int rebuild = 0;
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&rebuild, tiled[0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
-    if (rebuild != 0) {
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            checkCudaErrors(cudaStreamSynchronize(streams[r]));
-            tiled3d_rebuild(&tiled[r], d_position[r], n);
-        }
-    }
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_compute_forces_tiled3d_range(d_position[r], d_force[r], n, begin[r], count[r], box_size, d_result[r], &tiled[r], streams[r]);
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.final_potential, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_second_update_range(d_velocity[r], d_force[r], begin[r], count[r], box_size, streams[r]);
-    }
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        g_compute_ke_range(d_velocity[r], begin[r], count[r], d_result[r], streams[r]);
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
-    out.final_total = out.final_kinetic + out.final_potential;
-
-#if DEBUG
-    double stop = omp_get_wtime();
-    printf("Time(compute): %f s\n", stop - start);
-#endif
-
-    static_assert(offsetof(Particle, vx) - offsetof(Particle, x) == sizeof(Vec3), "Particle position fields are not layout-compatible with double3");
-    static_assert(offsetof(Particle, fx) - offsetof(Particle, vx) == sizeof(Vec3), "Particle velocity fields are not layout-compatible with double3");
-    static_assert(sizeof(Particle) - offsetof(Particle, fx) == sizeof(Vec3), "Particle force fields are not layout-compatible with double3");
-
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaStreamSynchronize(streams[r]));
-        checkCudaErrors(cudaMemcpy2D(&particles[begin[r]].x, sizeof(Particle), d_position[r] + begin[r], sizeof(Vec3), sizeof(Vec3), count[r], cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaMemcpy2D(&particles[begin[r]].vx, sizeof(Particle), d_velocity[r] + begin[r], sizeof(Vec3), sizeof(Vec3), count[r], cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaMemcpy2D(&particles[begin[r]].fx, sizeof(Particle), d_force[r] + begin[r], sizeof(Vec3), sizeof(Vec3), count[r], cudaMemcpyDeviceToHost));
-    }
 
     out.n = n;
     out.particles = particles;
@@ -1284,9 +882,14 @@ SimulationResult run_simulation_tiled_nccl_2gpu_halo(Particle* particles, unsign
 
     int device_count = 0;
     checkCudaErrors(cudaGetDeviceCount(&device_count));
+    if (device_count < 2 || n < 2) {
+        return run_simulation_tiled(particles, n, nsteps, box_size);
+    }
 
     const int devs[NUM_GPUS] = {0, 1};
     const int peer[NUM_GPUS] = {1, 0};
+    const int g0 = 0;
+    const int g1 = 1;
     const double z_mid = 0.5 * box_size;
     const double halo_w = R_CUT + CELL_SKIN;
 
@@ -1333,48 +936,65 @@ SimulationResult run_simulation_tiled_nccl_2gpu_halo(Particle* particles, unsign
         checkCudaErrors(cudaMalloc((void**)&d_send_vel[r], n * sizeof(Vec3)));
         checkCudaErrors(cudaMalloc((void**)&d_recv_vel[r], n * sizeof(Vec3)));
 
-        checkCudaErrors(cudaMemcpy2D(d_position[r], sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy2D(d_velocity[r], sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice));
-
-        d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_owned[r], n, z_mid, r);
-        checkCudaErrors(cudaGetLastError());
-
         init_tiled3d_state(&tiled[r], n, box_size);
-        checkCudaErrors(cudaStreamSynchronize(streams[r]));
-        tiled3d_rebuild(&tiled[r], d_position[r], n);
     }
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaMemsetAsync(d_result[r], 0, sizeof(double), streams[r]));
-        d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_force[r], d_owned[r], n, box_size, d_result[r], tiled[r].d_head, tiled[r].d_next, tiled[r].d_pcell, tiled[r].nx, tiled[r].ny, tiled[r].nz);
-        checkCudaErrors(cudaGetLastError());
-    }
-    NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
-    NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.start_potential, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpy2DAsync(d_position[g0], sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, streams[g0]));
+    checkCudaErrors(cudaMemcpy2DAsync(d_velocity[g0], sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemcpy2DAsync(d_position[g1], sizeof(Vec3), &particles[0].x, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, streams[g1]));
+    checkCudaErrors(cudaMemcpy2DAsync(d_velocity[g1], sizeof(Vec3), &particles[0].vx, sizeof(Particle), sizeof(Vec3), n, cudaMemcpyHostToDevice, streams[g1]));
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaMemsetAsync(d_result[r], 0, sizeof(double), streams[r]));
-        d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_velocity[r], d_owned[r], n, d_result[r]);
-        checkCudaErrors(cudaGetLastError());
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_owned[g0], n, z_mid, g0);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_owned[g1], n, z_mid, g1);
+    getLastCudaError();
+
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+    tiled3d_rebuild(&tiled[g0], d_position[g0], n);
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g1]));
+    tiled3d_rebuild(&tiled[g1], d_position[g1], n);
+
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g0], 0, sizeof(double), streams[g0]));
+    d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_force[g0], d_owned[g0], n, box_size, d_result[g0], tiled[g0].d_head, tiled[g0].d_next, tiled[g0].d_pcell, tiled[g0].nx, tiled[g0].ny, tiled[g0].nz);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g1], 0, sizeof(double), streams[g1]));
+    d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_force[g1], d_owned[g1], n, box_size, d_result[g1], tiled[g1].d_head, tiled[g1].d_next, tiled[g1].d_pcell, tiled[g1].nx, tiled[g1].ny, tiled[g1].nz);
+    getLastCudaError();
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g0], (void*)d_result[g0], 1, ncclDouble, ncclSum, comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g1], (void*)d_result[g1], 1, ncclDouble, ncclSum, comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.start_kinetic, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&out.start_potential, d_result[g0], sizeof(double), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g0], 0, sizeof(double), streams[g0]));
+    d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_velocity[g0], d_owned[g0], n, d_result[g0]);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g1], 0, sizeof(double), streams[g1]));
+    d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_velocity[g1], d_owned[g1], n, d_result[g1]);
+    getLastCudaError();
+    NCCL_CHECK(ncclGroupStart());
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g0], (void*)d_result[g0], 1, ncclDouble, ncclSum, comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g1], (void*)d_result[g1], 1, ncclDouble, ncclSum, comms[g1], streams[g1]));
+    NCCL_CHECK(ncclGroupEnd());
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&out.start_kinetic, d_result[g0], sizeof(double), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
     out.start_total = out.start_kinetic + out.start_potential;
 
 #if DEBUG
@@ -1382,200 +1002,254 @@ SimulationResult run_simulation_tiled_nccl_2gpu_halo(Particle* particles, unsign
 #endif
 
     for (unsigned int step = 1; step < nsteps; step++) {
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_force[r], d_owned[r], n, box_size);
-            checkCudaErrors(cudaGetLastError());
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_force[g0], d_owned[g0], n, box_size);
+        getLastCudaError();
+        checkCudaErrors(cudaMemsetAsync(tiled[g0].d_rebuild_flag, 0, sizeof(int), streams[g0]));
+        d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], tiled[g0].d_ref_x, tiled[g0].d_ref_y, tiled[g0].d_ref_z, d_owned[g0], n, box_size, tiled[g0].d_rebuild_flag);
+        getLastCudaError();
 
-            checkCudaErrors(cudaMemsetAsync(tiled[r].d_rebuild_flag, 0, sizeof(int), streams[r]));
-            d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], tiled[r].d_ref_x, tiled[r].d_ref_y, tiled[r].d_ref_z, d_owned[r], n, box_size, tiled[r].d_rebuild_flag);
-            checkCudaErrors(cudaGetLastError());
-        }
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_force[g1], d_owned[g1], n, box_size);
+        getLastCudaError();
+        checkCudaErrors(cudaMemsetAsync(tiled[g1].d_rebuild_flag, 0, sizeof(int), streams[g1]));
+        d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], tiled[g1].d_ref_x, tiled[g1].d_ref_y, tiled[g1].d_ref_z, d_owned[g1], n, box_size, tiled[g1].d_rebuild_flag);
+        getLastCudaError();
 
         NCCL_CHECK(ncclGroupStart());
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            NCCL_CHECK(ncclAllReduce((const void*)tiled[r].d_rebuild_flag, (void*)tiled[r].d_rebuild_flag, 1, ncclInt, ncclMax, comms[r], streams[r]));
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        NCCL_CHECK(ncclAllReduce((const void*)tiled[g0].d_rebuild_flag, (void*)tiled[g0].d_rebuild_flag, 1, ncclInt, ncclMax, comms[g0], streams[g0]));
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        NCCL_CHECK(ncclAllReduce((const void*)tiled[g1].d_rebuild_flag, (void*)tiled[g1].d_rebuild_flag, 1, ncclInt, ncclMax, comms[g1], streams[g1]));
         NCCL_CHECK(ncclGroupEnd());
 
         int rebuild = 0;
-        checkCudaErrors(cudaSetDevice(devs[0]));
-        checkCudaErrors(cudaStreamSynchronize(streams[0]));
-        checkCudaErrors(cudaMemcpy(&rebuild, tiled[0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            checkCudaErrors(cudaMemsetAsync(d_send_count[r], 0, sizeof(int), streams[r]));
-            d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_owned[r], n, box_size, z_mid, halo_w, d_send_count[r], d_send_idx[r], d_send_pos[r], d_send_vel[r]);
-            checkCudaErrors(cudaGetLastError());
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        checkCudaErrors(cudaMemcpyAsync(&rebuild, tiled[g0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        checkCudaErrors(cudaMemsetAsync(d_send_count[g0], 0, sizeof(int), streams[g0]));
+        d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_owned[g0], n, box_size, z_mid, halo_w, d_send_count[g0], d_send_idx[g0], d_send_pos[g0], d_send_vel[g0]);
+        getLastCudaError();
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        checkCudaErrors(cudaMemsetAsync(d_send_count[g1], 0, sizeof(int), streams[g1]));
+        d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_owned[g1], n, box_size, z_mid, halo_w, d_send_count[g1], d_send_idx[g1], d_send_pos[g1], d_send_vel[g1]);
+        getLastCudaError();
 
         NCCL_CHECK(ncclGroupStart());
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            NCCL_CHECK(ncclSend((const void*)d_send_count[r], 1, ncclInt, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclRecv((void*)d_recv_count[r], 1, ncclInt, peer[r], comms[r], streams[r]));
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        NCCL_CHECK(ncclSend((const void*)d_send_count[g0], 1, ncclInt, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_count[g0], 1, ncclInt, peer[g0], comms[g0], streams[g0]));
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        NCCL_CHECK(ncclSend((const void*)d_send_count[g1], 1, ncclInt, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_count[g1], 1, ncclInt, peer[g1], comms[g1], streams[g1]));
         NCCL_CHECK(ncclGroupEnd());
 
         int send_count_h[NUM_GPUS] = {0, 0};
         int recv_count_h[NUM_GPUS] = {0, 0};
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            checkCudaErrors(cudaStreamSynchronize(streams[r]));
-            checkCudaErrors(cudaMemcpy(&send_count_h[r], d_send_count[r], sizeof(int), cudaMemcpyDeviceToHost));
-            checkCudaErrors(cudaMemcpy(&recv_count_h[r], d_recv_count[r], sizeof(int), cudaMemcpyDeviceToHost));
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        checkCudaErrors(cudaMemcpyAsync(&send_count_h[g0], d_send_count[g0], sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+        checkCudaErrors(cudaMemcpyAsync(&recv_count_h[g0], d_recv_count[g0], sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        checkCudaErrors(cudaMemcpyAsync(&send_count_h[g1], d_send_count[g1], sizeof(int), cudaMemcpyDeviceToHost, streams[g1]));
+        checkCudaErrors(cudaMemcpyAsync(&recv_count_h[g1], d_recv_count[g1], sizeof(int), cudaMemcpyDeviceToHost, streams[g1]));
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        checkCudaErrors(cudaStreamSynchronize(streams[g1]));
 
         NCCL_CHECK(ncclGroupStart());
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            NCCL_CHECK(ncclSend((const void*)d_send_idx[r], (size_t)send_count_h[r], ncclInt, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclRecv((void*)d_recv_idx[r], (size_t)recv_count_h[r], ncclInt, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclSend((const void*)d_send_pos[r], (size_t)send_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclRecv((void*)d_recv_pos[r], (size_t)recv_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclSend((const void*)d_send_vel[r], (size_t)send_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-            NCCL_CHECK(ncclRecv((void*)d_recv_vel[r], (size_t)recv_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        NCCL_CHECK(ncclSend((const void*)d_send_idx[g0], (size_t)send_count_h[g0], ncclInt, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_idx[g0], (size_t)recv_count_h[g0], ncclInt, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclSend((const void*)d_send_pos[g0], (size_t)send_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_pos[g0], (size_t)recv_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclSend((const void*)d_send_vel[g0], (size_t)send_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_vel[g0], (size_t)recv_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        NCCL_CHECK(ncclSend((const void*)d_send_idx[g1], (size_t)send_count_h[g1], ncclInt, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_idx[g1], (size_t)recv_count_h[g1], ncclInt, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclSend((const void*)d_send_pos[g1], (size_t)send_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_pos[g1], (size_t)recv_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclSend((const void*)d_send_vel[g1], (size_t)send_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+        NCCL_CHECK(ncclRecv((void*)d_recv_vel[g1], (size_t)recv_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
         NCCL_CHECK(ncclGroupEnd());
 
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            if (recv_count_h[r] > 0) {
-                dim3 g((recv_count_h[r] - 1) / block_size_n.x + 1);
-                d_apply_halo_updates<<<g, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_recv_idx[r], d_recv_pos[r], d_recv_vel[r], recv_count_h[r]);
-                checkCudaErrors(cudaGetLastError());
-            }
-
-            d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_owned[r], n, z_mid, r);
-            checkCudaErrors(cudaGetLastError());
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        if (recv_count_h[g0] > 0) {
+            dim3 g((recv_count_h[g0] - 1) / block_size_n.x + 1);
+            d_apply_halo_updates<<<g, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_recv_idx[g0], d_recv_pos[g0], d_recv_vel[g0], recv_count_h[g0]);
+            getLastCudaError();
         }
+        d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_owned[g0], n, z_mid, g0);
+        getLastCudaError();
+
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        if (recv_count_h[g1] > 0) {
+            dim3 g((recv_count_h[g1] - 1) / block_size_n.x + 1);
+            d_apply_halo_updates<<<g, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_recv_idx[g1], d_recv_pos[g1], d_recv_vel[g1], recv_count_h[g1]);
+            getLastCudaError();
+        }
+        d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_owned[g1], n, z_mid, g1);
+        getLastCudaError();
 
         if (rebuild != 0) {
-            for (int r = 0; r < NUM_GPUS; r++) {
-                checkCudaErrors(cudaSetDevice(devs[r]));
-                checkCudaErrors(cudaStreamSynchronize(streams[r]));
-                tiled3d_rebuild(&tiled[r], d_position[r], n);
-            }
+            checkCudaErrors(cudaSetDevice(devs[g0]));
+            checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+            tiled3d_rebuild(&tiled[g0], d_position[g0], n);
+            checkCudaErrors(cudaSetDevice(devs[g1]));
+            checkCudaErrors(cudaStreamSynchronize(streams[g1]));
+            tiled3d_rebuild(&tiled[g1], d_position[g1], n);
         }
 
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            d_compute_forces_no_pe_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_force[r], d_owned[r], n, box_size, tiled[r].d_head, tiled[r].d_next, tiled[r].d_pcell, tiled[r].nx, tiled[r].ny, tiled[r].nz);
-            checkCudaErrors(cudaGetLastError());
-            d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_velocity[r], d_force[r], d_owned[r], n);
-            checkCudaErrors(cudaGetLastError());
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        d_compute_forces_no_pe_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_force[g0], d_owned[g0], n, box_size, tiled[g0].d_head, tiled[g0].d_next, tiled[g0].d_pcell, tiled[g0].nx, tiled[g0].ny, tiled[g0].nz);
+        getLastCudaError();
+        d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_velocity[g0], d_force[g0], d_owned[g0], n);
+        getLastCudaError();
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        d_compute_forces_no_pe_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_force[g1], d_owned[g1], n, box_size, tiled[g1].d_head, tiled[g1].d_next, tiled[g1].d_pcell, tiled[g1].nx, tiled[g1].ny, tiled[g1].nz);
+        getLastCudaError();
+        d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_velocity[g1], d_force[g1], d_owned[g1], n);
+        getLastCudaError();
     }
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_force[r], d_owned[r], n, box_size);
-        checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_force[g0], d_owned[g0], n, box_size);
+    getLastCudaError();
+    checkCudaErrors(cudaMemsetAsync(tiled[g0].d_rebuild_flag, 0, sizeof(int), streams[g0]));
+    d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], tiled[g0].d_ref_x, tiled[g0].d_ref_y, tiled[g0].d_ref_z, d_owned[g0], n, box_size, tiled[g0].d_rebuild_flag);
+    getLastCudaError();
 
-        checkCudaErrors(cudaMemsetAsync(tiled[r].d_rebuild_flag, 0, sizeof(int), streams[r]));
-        d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], tiled[r].d_ref_x, tiled[r].d_ref_y, tiled[r].d_ref_z, d_owned[r], n, box_size, tiled[r].d_rebuild_flag);
-        checkCudaErrors(cudaGetLastError());
-    }
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    d_first_update_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_force[g1], d_owned[g1], n, box_size);
+    getLastCudaError();
+    checkCudaErrors(cudaMemsetAsync(tiled[g1].d_rebuild_flag, 0, sizeof(int), streams[g1]));
+    d_tiled3d_needs_rebuild_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], tiled[g1].d_ref_x, tiled[g1].d_ref_y, tiled[g1].d_ref_z, d_owned[g1], n, box_size, tiled[g1].d_rebuild_flag);
+    getLastCudaError();
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)tiled[r].d_rebuild_flag, (void*)tiled[r].d_rebuild_flag, 1, ncclInt, ncclMax, comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclAllReduce((const void*)tiled[g0].d_rebuild_flag, (void*)tiled[g0].d_rebuild_flag, 1, ncclInt, ncclMax, comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclAllReduce((const void*)tiled[g1].d_rebuild_flag, (void*)tiled[g1].d_rebuild_flag, 1, ncclInt, ncclMax, comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
 
     int rebuild = 0;
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&rebuild, tiled[0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost));
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaMemsetAsync(d_send_count[r], 0, sizeof(int), streams[r]));
-        d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_owned[r], n, box_size, z_mid, halo_w, d_send_count[r], d_send_idx[r], d_send_pos[r], d_send_vel[r]);
-        checkCudaErrors(cudaGetLastError());
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&rebuild, tiled[g0].d_rebuild_flag, sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemsetAsync(d_send_count[g0], 0, sizeof(int), streams[g0]));
+    d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_owned[g0], n, box_size, z_mid, halo_w, d_send_count[g0], d_send_idx[g0], d_send_pos[g0], d_send_vel[g0]);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemsetAsync(d_send_count[g1], 0, sizeof(int), streams[g1]));
+    d_pack_halo_particles<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_owned[g1], n, box_size, z_mid, halo_w, d_send_count[g1], d_send_idx[g1], d_send_pos[g1], d_send_vel[g1]);
+    getLastCudaError();
 
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclSend((const void*)d_send_count[r], 1, ncclInt, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclRecv((void*)d_recv_count[r], 1, ncclInt, peer[r], comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclSend((const void*)d_send_count[g0], 1, ncclInt, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_count[g0], 1, ncclInt, peer[g0], comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclSend((const void*)d_send_count[g1], 1, ncclInt, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_count[g1], 1, ncclInt, peer[g1], comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
 
     int send_count_h[NUM_GPUS] = {0, 0};
     int recv_count_h[NUM_GPUS] = {0, 0};
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaStreamSynchronize(streams[r]));
-        checkCudaErrors(cudaMemcpy(&send_count_h[r], d_send_count[r], sizeof(int), cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaMemcpy(&recv_count_h[r], d_recv_count[r], sizeof(int), cudaMemcpyDeviceToHost));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&send_count_h[g0], d_send_count[g0], sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&recv_count_h[g0], d_recv_count[g0], sizeof(int), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemcpyAsync(&send_count_h[g1], d_send_count[g1], sizeof(int), cudaMemcpyDeviceToHost, streams[g1]));
+    checkCudaErrors(cudaMemcpyAsync(&recv_count_h[g1], d_recv_count[g1], sizeof(int), cudaMemcpyDeviceToHost, streams[g1]));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g1]));
 
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclSend((const void*)d_send_idx[r], (size_t)send_count_h[r], ncclInt, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclRecv((void*)d_recv_idx[r], (size_t)recv_count_h[r], ncclInt, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclSend((const void*)d_send_pos[r], (size_t)send_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclRecv((void*)d_recv_pos[r], (size_t)recv_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclSend((const void*)d_send_vel[r], (size_t)send_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-        NCCL_CHECK(ncclRecv((void*)d_recv_vel[r], (size_t)recv_count_h[r] * 3, ncclDouble, peer[r], comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclSend((const void*)d_send_idx[g0], (size_t)send_count_h[g0], ncclInt, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_idx[g0], (size_t)recv_count_h[g0], ncclInt, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclSend((const void*)d_send_pos[g0], (size_t)send_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_pos[g0], (size_t)recv_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclSend((const void*)d_send_vel[g0], (size_t)send_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_vel[g0], (size_t)recv_count_h[g0] * 3, ncclDouble, peer[g0], comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclSend((const void*)d_send_idx[g1], (size_t)send_count_h[g1], ncclInt, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_idx[g1], (size_t)recv_count_h[g1], ncclInt, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclSend((const void*)d_send_pos[g1], (size_t)send_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_pos[g1], (size_t)recv_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclSend((const void*)d_send_vel[g1], (size_t)send_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
+    NCCL_CHECK(ncclRecv((void*)d_recv_vel[g1], (size_t)recv_count_h[g1] * 3, ncclDouble, peer[g1], comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        if (recv_count_h[r] > 0) {
-            dim3 g((recv_count_h[r] - 1) / block_size_n.x + 1);
-            d_apply_halo_updates<<<g, block_size_n, 0, streams[r]>>>(d_position[r], d_velocity[r], d_recv_idx[r], d_recv_pos[r], d_recv_vel[r], recv_count_h[r]);
-            checkCudaErrors(cudaGetLastError());
-        }
-        d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_owned[r], n, z_mid, r);
-        checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    if (recv_count_h[g0] > 0) {
+        dim3 g((recv_count_h[g0] - 1) / block_size_n.x + 1);
+        d_apply_halo_updates<<<g, block_size_n, 0, streams[g0]>>>(d_position[g0], d_velocity[g0], d_recv_idx[g0], d_recv_pos[g0], d_recv_vel[g0], recv_count_h[g0]);
+        getLastCudaError();
     }
+    d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_owned[g0], n, z_mid, g0);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    if (recv_count_h[g1] > 0) {
+        dim3 g((recv_count_h[g1] - 1) / block_size_n.x + 1);
+        d_apply_halo_updates<<<g, block_size_n, 0, streams[g1]>>>(d_position[g1], d_velocity[g1], d_recv_idx[g1], d_recv_pos[g1], d_recv_vel[g1], recv_count_h[g1]);
+        getLastCudaError();
+    }
+    d_set_owner_from_z<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_owned[g1], n, z_mid, g1);
+    getLastCudaError();
 
     if (rebuild != 0) {
-        for (int r = 0; r < NUM_GPUS; r++) {
-            checkCudaErrors(cudaSetDevice(devs[r]));
-            checkCudaErrors(cudaStreamSynchronize(streams[r]));
-            tiled3d_rebuild(&tiled[r], d_position[r], n);
-        }
+        checkCudaErrors(cudaSetDevice(devs[g0]));
+        checkCudaErrors(cudaStreamSynchronize(streams[g0]));
+        tiled3d_rebuild(&tiled[g0], d_position[g0], n);
+        checkCudaErrors(cudaSetDevice(devs[g1]));
+        checkCudaErrors(cudaStreamSynchronize(streams[g1]));
+        tiled3d_rebuild(&tiled[g1], d_position[g1], n);
     }
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaMemsetAsync(d_result[r], 0, sizeof(double), streams[r]));
-        d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_position[r], d_force[r], d_owned[r], n, box_size, d_result[r], tiled[r].d_head, tiled[r].d_next, tiled[r].d_pcell, tiled[r].nx, tiled[r].ny, tiled[r].nz);
-        checkCudaErrors(cudaGetLastError());
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g0], 0, sizeof(double), streams[g0]));
+    d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_position[g0], d_force[g0], d_owned[g0], n, box_size, d_result[g0], tiled[g0].d_head, tiled[g0].d_next, tiled[g0].d_pcell, tiled[g0].nx, tiled[g0].ny, tiled[g0].nz);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    checkCudaErrors(cudaMemsetAsync(d_result[g1], 0, sizeof(double), streams[g1]));
+    d_compute_forces_tiled3d_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_position[g1], d_force[g1], d_owned[g1], n, box_size, d_result[g1], tiled[g1].d_head, tiled[g1].d_next, tiled[g1].d_pcell, tiled[g1].nx, tiled[g1].ny, tiled[g1].nz);
+    getLastCudaError();
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g0], (void*)d_result[g0], 1, ncclDouble, ncclSum, comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g1], (void*)d_result[g1], 1, ncclDouble, ncclSum, comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.final_potential, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&out.final_potential, d_result[g0], sizeof(double), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_velocity[r], d_force[r], d_owned[r], n);
-        checkCudaErrors(cudaGetLastError());
-        checkCudaErrors(cudaMemsetAsync(d_result[r], 0, sizeof(double), streams[r]));
-        d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[r]>>>(d_velocity[r], d_owned[r], n, d_result[r]);
-        checkCudaErrors(cudaGetLastError());
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_velocity[g0], d_force[g0], d_owned[g0], n);
+    getLastCudaError();
+    checkCudaErrors(cudaMemsetAsync(d_result[g0], 0, sizeof(double), streams[g0]));
+    d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[g0]>>>(d_velocity[g0], d_owned[g0], n, d_result[g0]);
+    getLastCudaError();
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    d_second_update_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_velocity[g1], d_force[g1], d_owned[g1], n);
+    getLastCudaError();
+    checkCudaErrors(cudaMemsetAsync(d_result[g1], 0, sizeof(double), streams[g1]));
+    d_compute_ke_owned<<<grid_size_n, block_size_n, 0, streams[g1]>>>(d_velocity[g1], d_owned[g1], n, d_result[g1]);
+    getLastCudaError();
     NCCL_CHECK(ncclGroupStart());
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        NCCL_CHECK(ncclAllReduce((const void*)d_result[r], (void*)d_result[r], 1, ncclDouble, ncclSum, comms[r], streams[r]));
-    }
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g0], (void*)d_result[g0], 1, ncclDouble, ncclSum, comms[g0], streams[g0]));
+    checkCudaErrors(cudaSetDevice(devs[g1]));
+    NCCL_CHECK(ncclAllReduce((const void*)d_result[g1], (void*)d_result[g1], 1, ncclDouble, ncclSum, comms[g1], streams[g1]));
     NCCL_CHECK(ncclGroupEnd());
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaStreamSynchronize(streams[0]));
-    checkCudaErrors(cudaMemcpy(&out.final_kinetic, d_result[0], sizeof(double), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpyAsync(&out.final_kinetic, d_result[g0], sizeof(double), cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
     out.final_total = out.final_kinetic + out.final_potential;
 
 #if DEBUG
@@ -1583,15 +1257,11 @@ SimulationResult run_simulation_tiled_nccl_2gpu_halo(Particle* particles, unsign
     printf("Time(compute): %f s\n", stop - start);
 #endif
 
-    for (int r = 0; r < NUM_GPUS; r++) {
-        checkCudaErrors(cudaSetDevice(devs[r]));
-        checkCudaErrors(cudaStreamSynchronize(streams[r]));
-    }
-
-    checkCudaErrors(cudaSetDevice(devs[0]));
-    checkCudaErrors(cudaMemcpy2D(&particles[0].x, sizeof(Particle), d_position[0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
-    checkCudaErrors(cudaMemcpy2D(&particles[0].vx, sizeof(Particle), d_velocity[0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
-    checkCudaErrors(cudaMemcpy2D(&particles[0].fx, sizeof(Particle), d_force[0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaSetDevice(devs[g0]));
+    checkCudaErrors(cudaMemcpy2DAsync(&particles[0].x, sizeof(Particle), d_position[g0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaMemcpy2DAsync(&particles[0].vx, sizeof(Particle), d_velocity[g0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaMemcpy2DAsync(&particles[0].fx, sizeof(Particle), d_force[g0], sizeof(Vec3), sizeof(Vec3), n, cudaMemcpyDeviceToHost, streams[g0]));
+    checkCudaErrors(cudaStreamSynchronize(streams[g0]));
 
     out.n = n;
     out.particles = particles;
@@ -1825,9 +1495,9 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     (void)log_steps;
     if (n <= 5000U) {
         return run_simulation_basic(particles, n, nsteps, box_size);
-    } else if (n <= 50000U) {
-        return run_simulation_tiled(particles, n, nsteps, box_size);
     } else {
-        return run_simulation_tiled_nccl_2gpu_halo(particles, n, nsteps, box_size);
+        return run_simulation_tiled(particles, n, nsteps, box_size);
+        //} else {
+        //    return run_simulation_tiled_nccl_2gpu_halo(particles, n, nsteps, box_size);
     }
 }
