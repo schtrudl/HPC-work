@@ -381,44 +381,139 @@ __global__ void d_compute_forces(Vec2* pos, Vec2* force, unsigned int n, double 
     atomicAdd(result, pe);
 }
 
-/// Cell-list based GPU force kernel without PE.
-__global__ void d_compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double box_size, const int* head, const int* next, const int* pcell, int nx, int ny) {
+__global__ void d_compute_forces(Vec2* __restrict__ pos, Vec2* __restrict__ force, unsigned int n, double box_size, double* result) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
+    __shared__ Vec2 s_pos[BLOCK_SIZE];
 
-    Vec2 pi = pos[i];
-    double fix = 0.0, fiy = 0.0;
+    double fix = 0.0, fiy = 0.0, pe = 0.0;
+    Vec2 pi = (i < n) ? pos[i] : make_double2(0.0, 0.0);
 
-    int ci = pcell[i];
-    int cix = ci % nx;
-    int ciy = ci / nx;
+    for (unsigned int tile = 0; tile < (n + BLOCK_SIZE - 1) / BLOCK_SIZE; tile++) {
+        unsigned int j_load = tile * BLOCK_SIZE + threadIdx.x;
+        s_pos[threadIdx.x] = (j_load < n) ? pos[j_load] : make_double2(0.0, 0.0);
+        __syncthreads();
 
-    for (int ndy = -1; ndy <= 1; ndy++) {
-        int ncy = (ciy + ndy + ny) % ny;
-        for (int ndx = -1; ndx <= 1; ndx++) {
-            int ncx = (cix + ndx + nx) % nx;
-            int nc = ncy * nx + ncx;
-            for (int j = head[nc]; j >= 0; j = next[j]) {
-                if (j == (int)i) continue;
-                Vec2 pj = pos[j];
+        if (i < n) {
+            for (unsigned int k = 0; k < BLOCK_SIZE; k++) {
+                unsigned int j = tile * BLOCK_SIZE + k;
+                if (j >= n || j == i) continue;
+                Vec2 pj = s_pos[k];
                 double dx = pi.x - pj.x;
                 double dy = pi.y - pj.y;
                 dx -= box_size * nearbyint(dx / box_size);
                 dy -= box_size * nearbyint(dy / box_size);
                 double r2 = dx * dx + dy * dy;
-                if (r2 >= rc2 || r2 == 0.0) continue;
-                double sr2 = (SIGMA * SIGMA) / r2;
-                double sr6 = sr2 * sr2 * sr2;
-                double sr12 = sr6 * sr6;
-                double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
-                fix += fij * dx;
-                fiy += fij * dy;
+                if (r2 < rc2 && r2 != 0.0) {
+                    double sr2 = (SIGMA * SIGMA) / r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    fix += fij * dx;
+                    fiy += fij * dy;
+                    pe += 0.5 * (4.0 * EPSILON * (sr12 - sr6) - v_shift);
+                }
             }
         }
+        __syncthreads();
     }
 
-    force[i].x = fix;
-    force[i].y = fiy;
+    if (i < n) {
+        force[i].x = fix;
+        force[i].y = fiy;
+    }
+    pe = block_reduce(pe);
+    if (threadIdx.x == 0) atomicAdd(result, pe);
+}
+
+void inline compute_forces_no_pe(Vec2* pos, Vec2* force, unsigned int n, double box_size) {
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        const Vec2 pi = pos[i];
+        Vec2* fi = &force[i];
+        fi->x = 0.0;
+        fi->y = 0.0;
+        for (unsigned int j = 0; j < n; ++j) {
+            if (j == i) {
+                continue;
+            }
+            const Vec2 pj = pos[j];
+
+            // compute distance between particles with periodic boundary conditions
+            double dx = pi.x - pj.x;
+            double dy = pi.y - pj.y;
+
+            dx -= box_size * nearbyint(dx / box_size);
+            dy -= box_size * nearbyint(dy / box_size);
+
+            // compute Lennard-Jones force and potential energy contribution if particles are within the cutoff distance
+            double r2 = dx * dx + dy * dy;
+            if (r2 >= rc2 || r2 == 0.0) {
+                continue;
+            }
+            double sr2 = (SIGMA * SIGMA) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
+
+            double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+            double fx = fij * dx;
+            double fy = fij * dy;
+
+            fi->x += fx;
+            fi->y += fy;
+        }
+    }
+}
+
+//restrict pove compilerju da se dva kazalca v pomnilniku ne prekrivata, to omogoča boljše optimizacije 
+__global__ void d_compute_forces_no_pe(Vec2* __restrict__ pos, Vec2* __restrict__ force, unsigned int n, double box_size) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ Vec2 s_pos[BLOCK_SIZE];
+
+    double fix = 0.0, fiy = 0.0;
+    Vec2 pi = (i < n) ? pos[i] : make_double2(0.0, 0.0);
+
+    for (unsigned int tile = 0; tile < (n + BLOCK_SIZE - 1) / BLOCK_SIZE; tile++){
+        unsigned int j_load = tile * BLOCK_SIZE + threadIdx.x;
+        s_pos[threadIdx.x] = (j_load < n) ? pos[j_load] : make_double2(0.0,0.0);
+        __syncthreads();
+
+        if (i < n){
+            for (unsigned int k = 0; k < BLOCK_SIZE; k++){
+                unsigned int j = tile * BLOCK_SIZE + k;
+                if (j >= n || j == i) continue;
+                Vec2 pj = s_pos[k];
+                double dx = pi.x - pj.x;
+                double dy = pi.y - pj.y;
+                dx -= box_size * nearbyint(dx / box_size);
+                dy -= box_size * nearbyint(dy / box_size);
+                double r2 = dx * dx + dy * dy;
+                if (r2 < rc2 && r2 != 0.0){
+                    double sr2 = (SIGMA * SIGMA) /r2;
+                    double sr6 = sr2 * sr2 * sr2;
+                    double sr12 = sr6 * sr6;
+                    double fij = 24.0 * EPSILON * (2.0 * sr12 - sr6) / r2;
+                    fix += fij * dx;
+                    fiy += fij * dy;
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    if (i < n){
+        force[i].x = fix;
+        force[i].y = fiy;
+    }
+}
+
+void inline second_update(Vec2* vel, Vec2* force, unsigned int n) {
+    OMP(parallel for)
+    for (unsigned int i = 0; i < n; ++i) {
+        Vec2* v = &vel[i];
+        const Vec2 f = force[i];
+        v->x += 0.5 * DT * f.x;
+        v->y += 0.5 * DT * f.y;
+    }
 }
 
 __global__ void d_second_update(Vec2* vel, Vec2* force, unsigned int n) {
@@ -437,6 +532,10 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
     dim3 block_size_n(BLOCK_SIZE);
     dim3 grid_size_n((n - 1) / block_size_n.x + 1);
 
+    // 2D grid for n**2
+    //dim3 block_size_2d(BLOCK_SIZE, 1);
+    //dim3 grid_size_2d((n - 1) / block_size_2d.x + 1, (n - 1) / block_size_2d.y + 1);
+
     checkCudaErrors(cudaMemcpyAsync(d_pos, particles[0].position, n * sizeof(Vec2), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyAsync(d_vel, particles[0].velocity, n * sizeof(Vec2), cudaMemcpyHostToDevice));
 
@@ -444,7 +543,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
 
     // forces are zeroed on initialize_particles
     // result is zeroed from init
-    d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result, d_head, d_next, d_pcell, g_nx, g_ny);
+    d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaMemcpy(&out.start_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -475,7 +574,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
             cl_rebuild(n);
         }
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_head, d_next, d_pcell, g_nx, g_ny);
+        d_compute_forces_no_pe<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size);
         checkCudaErrors(cudaGetLastError());
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
         checkCudaErrors(cudaGetLastError());
@@ -495,7 +594,7 @@ SimulationResult run_simulation(Particle* particles, unsigned int n, unsigned in
         }
         checkCudaErrors(cudaMemset(d_result, 0, sizeof(double)));
         checkCudaErrors(cudaMemset(d_force, 0, n * sizeof(Vec2)));
-        d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result, d_head, d_next, d_pcell, g_nx, g_ny);
+        d_compute_forces<<<grid_size_n, block_size_n>>>(d_pos, d_force, n, box_size, d_result);
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaMemcpy(&out.final_potential, d_result, sizeof(double), cudaMemcpyDeviceToHost));
         d_second_update<<<grid_size_n, block_size_n>>>(d_vel, d_force, n);
