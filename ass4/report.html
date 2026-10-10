@@ -1,0 +1,371 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="Kompari 0.1.0"><title>Kompari report</title><style>
+body {
+    font-family: Roboto, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: #f5f5f5;
+    color: #333;
+}
+
+.header {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.logo {
+    vertical-align: -10%;
+}
+
+.header h1 {
+    margin: 0;
+    color: #2d3748;
+}
+
+.summary {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.diff-entry {
+    background: #fff;
+    margin-bottom: 30px;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.diff-entry h2 {
+    margin-top: 0;
+    color: #2d3748;
+    border-bottom: 2px solid #edf2f7;
+    padding-bottom: 10px;
+}
+
+.comparison-container {
+    display: flex;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.image-container {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.image-box {
+    flex: 1;
+    min-width: 250px;
+    max-width: 400px;
+}
+
+.image-box h3 {
+    margin: 0 0 10px 0;
+    color: #4a5568;
+    font-size: 1rem;
+}
+
+.image-box img {
+    max-width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+}
+
+.stats-container {
+    width: 200px;
+    flex-shrink: 0;
+    background: #f8fafc;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.stat-item {
+    margin-bottom: 15px;
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.stat-value.ok {
+    color: #77d906;
+}
+
+.stat-value.warning {
+    color: #d97706;
+}
+
+.stat-value.error {
+    color: #dc2626;
+}
+
+@media (max-width: 1200px) {
+    .comparison-container {
+        flex-direction: column-reverse;
+    }
+
+    .stats-container {
+        width: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .stat-item {
+        flex: 1;
+        min-width: 150px;
+        margin-bottom: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .image-box {
+        min-width: 100%;
+    }
+}
+
+img.zoom:hover {
+    cursor: pointer;
+    transform: scale(1.05);
+}
+
+dialog {
+    width: 80%;
+    height: 80%;
+    max-width: 800px;
+    max-height: 820px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+}
+
+.zoomed-image {
+    object-fit: contain;
+}
+
+.zoomed-image-small {
+    image-rendering: pixelated;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 30px;
+  margin-right: 1em;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .1s;
+  border-radius: 34px;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .1s;
+  border-radius: 50%;
+}
+input:checked + .slider {
+  background-color: #3c3;
+}
+input:checked + .slider:before {
+  transform: translateX(30px);
+}
+
+.accept-button {
+  padding: 12px 24px;
+  margin-bottom: 1em;
+  font-size: 16px;
+  font-weight: 500;
+  color: white;
+  background-color: #4CAF50;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.accept-button:hover {
+  background-color: #45A049;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.accept-button:active {
+  transform: translateY(0px);
+  box-shadow: none;
+}
+.accept-button:disabled {
+  background-color: #CCCCCC;
+  cursor: not-allowed;
+  transform: none;
+}
+#errorMsg {
+    background-color: #fef2f2;
+    border: 1px solid #f87171;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 12px 0;
+    display: none;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 600px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.tabs {
+  margin-top: 8px;
+  display: flex;
+}
+.tab {
+  margin-left: 10px;
+  margin-right: 10px;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+}
+.tab.active {
+  color: #444;
+  border-bottom: 2px solid #444;
+}
+
+.hint {
+    color: #666;
+    font-size: 80%;
+}
+
+.color-square {
+    margin-left: 10px;
+    margin-right: 10px;
+    display: inline-block;
+    width: 10px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid black;
+</style><link rel="icon" type="image/png" href="data:image/png;base64,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"></head><body><div class="header"><h1><img class="logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAA3CAYAAAC8TkynAAABbWlDQ1BpY2MAACiRdZE7SwNBFIW/RCViIhG0ELVIEcUiAVEQS42FTRCJCkZtNpuXkMeyu0HEVrCxECxEG1+F/0BbwVZBEBRBxNLaVyNhvZMEIpLMMHs/zs65zJwBdzSn563WEcgXbDM2EwksxZcDnje89NMF9Gm6ZUzNzUVpOr4fcKl6H1a9mu9rOLzJlKWDq114XDdMW3hSOLpuG4p3hHv0rJYUPhYOmXJA4RulJ6r8qjhT5U/F5kJsGtyqZyDzhxN/WM+aeeFh4WA+V9Jr51E38aUKi/Pq7rIGsIgxQ4QACUqskcMmLLUgmTX2jVR8sxTFo8vXYANTHBmy4g2JWpKuKalp0VMyc2yo3P/naaXHRqvdfRFoe3Gcj0Hw7EF513F+ThynfAotz3BVqPuLktPEl+i7dS14BP4tuLiua4l9uNyG3idDM7WK1CLLnU7D+zl0xqH7DjpWqlnV/nP2CAub8kS3cHAIQ7Lfv/oLvz9n7JdU5rIAAAAJcEhZcwAAD2EAAA9hAag/p2kAAAypSURBVGje7VsJeFTVFf7fmzdrlslONgwhRLKisomigrJWqohoNdYNtdWi1U9R0KpYRKFYVIqI2uKnQMEWQY1KBeVDdgOCRGgQEUKIBENC9klmf6/n3lkyk8wkMRk1Fl++SSYz77255z/n/Oc/5yaCQgfO4kPEWX78AsAvAJzlhxToxbasKPwfGKoEsScgAEKQi3/OQAhBnNsOAEtpGaqXrYSmTwK0AzOhyxoATd8UiCrVzwoMq92OssoKHC4vxZGKMpyqqcYdE69Ffnomt0EIBoA2NQWCSo3TC5ZACDdAFRUBHQERdsmFiBw1kgDJ5Bf3RiBkRcaXx77Gpn2fYUfJfhw/dRJNZhNMFjOmXjoOGcl9wVSP4LNoIZAQcraYcfzWP8L85UGIagmKwwFZliFFRkA/5HxET/01IkaPhEqnDZpbP+ZhMrfg4707sXbbRhQfO4xmsxkqlQQ1PZyyE+f0ScKa2S8iLjLKz/tBAWBH4849KL/rIQiiAEV0+1xWoFjtECQR+kG5iLnlehgnXkEgqX+SiLDYbXh/12as/OR9lJw4BoXWp5EkiNzFgvechffMpAgY2877HQLAzi6780GYthdB0GnIQMVtoAsMDgTdTT/8AiRMvwPhFw31csSPAcKW4j1YUrga+745xA3WUNq2pW2704mstP5YO3sRdBpNwLVJwWlTQNSUSTBtK+L3E/ygIxi0GoYeWnbvQ3lxCYy/uRoJ990JdXTUDwpCdUMtXnx7OdZt3wSb0w6tpPH7LOYoz+8OpwOTLhztMj6A9zsVQmEjBkMVH0uhLwcOEkoNgXiA8UPNm/9C2bT7Ydpb7CXJUHdZu4jYbp43C6s2r+e/69oY35qEAmWrAoNOh1HnDe0wNzsEQB0XC/3ADE6CCPJB/KESIBr0sHx1BOX3PIwzb70TUID0BJA3Nr6Duxf9GUcrymHQ6lx57rOEtkTspPBPjUtE/8TUDrlJ7Ew9MLIjKg2weoXzBE8P93sChZqz2YxTTz2HU/MXceB4NNB5FqvVr3x2SG50roeabFTPZ7+5GE+veAVWm51ITt0FtlUo/J0Y2DfdG/7d7gV02Zl0lqrdByp+WeeDmaSCQFWh5vXVOPnkXyDbbPz9ufOexY5duzoFYV/xfjz6xJ+4BxmDP7rsBSz/uJAbrhJEN/A+iwiYa5QC9GJO2oCeN0PaAek8vHkJ9Ps8wYdu2uBD3CDqdahfU4iTj8+HQJFQcGMBCj/8ALV19UGd19LSgrfXrcVvbyiAk0TNrL8vJLL7hEJeT7cU/S1VPGvxfPm8Sx+gpnKY029Ap9HSKQCalESoE2KhkEd8P9839QL+pG+iXo+Gdz+kdFiMvOxszJrxCHbv2Q07hbXSruoqKNr9Ge7/w70YNnQonvnnq3hv52boKd/9btrO6UK7cGDRYwyL4MqvxxHAvK/Ly4ZidwSgNH8dqPgmh+K6u0BMXLvi3zj96puIi41BdlYWvqAwb5sKh746hOTkFHokY2nhW1zcMOOFdh1NIN5v/fKUv/SkVCTFxHVKF12aB0RccSnXAdzrCgIGvhIosxWXnhA0alS/tAwNW3aiX1oa7JQSNTU13qubW5pRVV2FrIFZ2HZgLxa/uxJa4hFB6Qjy4EziIPk7+rxhUIkiOpt4dg2A0RdB2z+NSaugXXaHpEydpOJwonLu87BX1SA/fxCOHjvmffvw4cPIy8lDTWMD5qxcChsBxHJeCRJr8NGk7cKfuCOWNP9VIy7vkjbvEgCqiHDETLvJlQYEqadEKQjMwH5M7YkOigLbiZOofPFVGMPDIVG1MJmaYaMqYaFuLT4+HovWreB1XiupW9NJUdrg3bb++JMzK6HXXTYB/RKT0ZV5t9DVsbhMNbj83kdh2rQVQpjBN8Lbx4RPZ+S7XB7SpBr7L38Zpsw0mBsaILGujRj7lKkOBc88zMFlIkcJOtZQgg45LDYrcon5Vz62ADERxqDyt1szQZE8mDx3FnT5OVCoXUaAUqwEHMH4eJGthqKo6pU3aIGRsJK3GijsY2Jj8bd1K7kBQlDjO065Fro2OS4Bf737Ea/xXWlIvtdQVJOYgL5LFyDs0hGQzZYgEtnfNd5MVdyNCjVRzUV7YduzHw4ylombz4+UYMfBL4j4NN9rvOUiPBnNlEI5aRl47cE5/KfH+K40ZEJ3doacZHz18jWoW7UWjlOVbqIQIRDrwj07UOQgQ0UeBXbEXjURjffdCuJ6LPxwFdYXbeWdHVuOAo8Bgm9z6qMZZCp1Mp8AxRmjMWXkGEyfXMDJ7/sY320APIetshqNn+50ebS0DM66BiJKOzXZEkSq/yLlt4oqgKiReO47mlvgaGyCo8kEQ5QR+2+bjIowCa/vWA+z1YKYyAgiSAPVf9ekyWZzgEo6FR+Zv2+n9pdxRmRYONISknBhVj7GDrkY/ZNS0d1hhBCqvUGm+Z1NzZws5XoCovI0BGJ5kW7Pp0psfaTQnPSa9UQFar84gNsP7EJZhIRR11+OwdRzJMdGQ6fT8PrNLnDKTGyrEKGLQpKxLyL1URzQCL0B4aQy22uOEO0LdGuHhbouMVYDxzdU30+UQyGCY3GrsIfiVk+0eCkmGgaS198mRePEwe2QzArGnz8IKWmJMJutkEnEyE65tdBRmDdaqmBxNOLcpCxkxmd3Tgw/xc4Q867tcyK2g19RFFhdXODbp1NHyQasMgFjLS3HwT2UNmSsg6rCtk1F+ObwcVhaLFCTAlTTed4JlJsLrHYLisv2YW9pEUWGHLJhS8hSwHagBPLR41AklR+BCZIryGxVZ9BUXAJTydcQ6flb1nosQRN0vHWlttugRVxCDLJyMzB4eB7SMvpCRfdijRN8hBeb8uakDEJOan5IRm8hAcBZUwvbjiIXVXt6BspjgULecvI71G0rgokiw2ky8dmCXq3CKrTgFWcjB0BkMwSKGOZZJ0lmrU6Nc7MzcPmEi5Gdn8mtZK97Z35UOi/LGouY8JgeOy4kHOAsPQGBhaXk2j1iAxEnMX7dll2o3/k5ZDKcRYKo1XhnCRpFaDODFYjhVfzBxtv//fIIjhwqxQXDcjFp6hgkJifAZrW7uz07yqqPEgDDexwFPQZAIdZXauvIs6KrYyQdbz5Whur3NsBC2p9PiMhwX40s04qNTpc0ZsNLmWqdRqXxA0OjVvPzi3bsxxHihyk3TsDwkRfAQZHAIuBMUzUfe0vuLbtuk3ePAbDauLxlIS+Sl+s/24eKZathLa/gHhdUYjs95KS8PiczE1qNlj/ycnJ5i9yurhEQWtIEjXVNWPHaWhSu+dhdTFTUMdroGluPOaDHAPC0Z+NxAqBmw1ZUvf0BB0XQSAg0QmJtsWA0YsjsmYiinzHR0Vgw5xkk9ulD3nW0lXz8HipJ4l7fUPgp1qz4gKeIIIZm56HnZZB5mVTfmY1bcWbDZtf6Rf+5pd/UiIyMm34HkocORnpKCtL79cOg3DzMvP8hvr/QysmCl1RdT0VIlBZbPinCu6v/Aw3JZo1a0+Ny2PMIoEU1fVuJmo82u8LdpwtU2raH1ENEXT0RcTdP5a+MHzMWE8eN48+vm3wNbrvpZljonLZi3tNCiDwlNNj00XZ893UtJDatVnpBFVClpXo9FZQrzGaEXTwMKU89zMsjO6bdcqt7I9N1PD5jJr47XYn1GzcizD1zCKRydVodzk3L6pECDKkSNOQPhDo+hpdCr7u4DHbPCcirYSOGIvWFpyEZI73X6Sl1GMl5fyd9/8K8Bbhy/AQ0t7S0poPPgIlNfNngNDc7OxT2hwYAKToK6sQE1+jcZ0wi8O10KyInjcM5L82HJi6203sZIyLx0nPPYxqlA1OBTof/NJopwdTkFESEhfUSEnSrPhWBwDdRFa9m5e5JuPcu9H1+DoFk7PL9wgwGzH/qacybPYe6Q51LDnu6TgI1Njq2tUj0BgA8+wfekKVSp6I8TZ77GBIf+B3XB905brmhAK8tWoL4uHg+PFXcGyh6vQ4hW3fI7uRJVEoDwaBD0oInETPlyh6XqVEjL8E/Fr/MdQKPBMYrstL7AJBJ+7OYZGUx+dnHETV+NBQlNH8oMfi887F04SIYIyMJXxktZnNIKkDoAGDTm0YTFznxD/we0b8a0+WpbFePYYOHYM5jT/DndfV1obI/NACwOaBcU4eICVcg/vaCH+wPpq69ajKmXj0ZlVWnqQ9w9p4UkC1WUic69Jkx3aUGu7Ah0d1jxn0P8FRgewq9hwPIWmPBNTBkDQh56Lc9Mvqlo2Dq9SG7X2hGYqynZ12eu9wJP/DfybHWWUV9AJ8/CL0BgJ/gCFWg/Wz/XyBUQfbLf4yc7QD8DwjEVb9W8ayNAAAAAElFTkSuQmCC" width="32" height="32">Kompari report</h1><p>Generated on 2026-05-26 05:16:10 +02:00</p></div><dialog id="imageDialog"><img id="zoomedImage" class="zoomed-image" src="" alt="Zoomed Image"></dialog><script>
+function openImageDialog(img, pixelize) {
+    const dialog = document.getElementById('imageDialog');
+    const zoomedImg = document.getElementById('zoomedImage');
+
+    if (pixelize) {
+        zoomedImg.classList.add("zoomed-image-small");
+    } else {
+        zoomedImg.classList.remove("zoomed-image-small");
+    }
+
+    zoomedImg.src = img.src;
+    if (img.width < img.height) {
+        zoomedImg.style.width = "100%";
+        zoomedImg.style.height = "auto";
+    } else {
+        zoomedImg.style.width = "auto";
+        zoomedImg.style.height = "100%";
+    }
+    dialog.showModal();
+}
+
+function closeImageDialog() {
+    const dialog = document.getElementById('imageDialog');
+    dialog.close();
+}
+
+document.getElementById('imageDialog').addEventListener('click', function(event) {
+    closeImageDialog();
+});
+
+var selected = new Set();
+function toggle(event) {
+    let node = event.target.parentNode.parentNode;
+    let name = node.childNodes[2].textContent;
+    if (event.target.checked) {
+        selected.add(name);
+        node.style.color = "#3a3";
+    } else {
+        selected.delete(name);
+        node.style.color = "#333";
+    }
+    updateAcceptButton()
+}
+
+function updateAcceptButton() {
+    let text = document.getElementById('acceptText');
+    text.textContent = "Accept selected cases (" + selected.size + " / " + nTests + ")";
+    let button = document.getElementById('acceptButton');
+    button.disabled = (selected.size === 0);
+}
+
+function switchDiffTab(id, selected, n) {
+    for (let idx = 0; idx < n; idx++) {
+        document.getElementById(`tab-diff-${id}-${idx}`).classList.remove('active');
+        document.getElementById(`img-diff-${id}-${idx}`).style.display = 'none';
+    }
+    document.getElementById(`tab-diff-${id}-${selected}`).classList.add('active');
+    document.getElementById(`img-diff-${id}-${selected}`).style.display = 'inline';
+}
+
+async function acceptTests() {
+    let text = document.getElementById('acceptText');
+    text.textContent = "Updating " + selected.size + " cases ...";
+    let button = document.getElementById('acceptButton');
+    button.disabled = true;
+
+    try {
+        const url = '/update';
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+               "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ accepted_names: Array.from(selected) })
+        });
+        if (!response.ok) {
+          throw new Error(`Response status: ${response.status}`);
+        } else {
+          for (i = 0; i < nTests; i++) {
+                document.getElementById("t" + i).checked = false;
+          }
+          location.reload();
+        }
+    } catch (e) {
+        let error = document.getElementById('errorMsg');
+        error.textContent = e.message;
+        error.style.display = "flex";
+        text.textContent = "Try update again";
+        button.disabled = false;
+    }
+}
+</script><div class="diff-entry"><h2>1024/1.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/1024/1.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>1024/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/1024/100.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>1024/50.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/1024/50.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>128/1.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/128/1.png" height="128" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>128/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/128/100.png" height="128" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>128/50.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/128/50.png" height="128" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>2048/1.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/2048/1.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>2048/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/2048/100.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>2048/50.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/2048/50.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>256/1.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/256/1.png" height="256" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>256/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/256/100.png" height="256" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>256/50.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/256/50.png" height="256" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>512/1.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/512/1.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>512/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/512/100.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>512/50.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Status</div><div class="stat-value error">Missing file</div></div></div><div class="image-box"><h3>Left image</h3>File is missing</div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/512/50.png" height="400" onclick="openImageDialog(this, false)"></div><div class="image-box"><h3>Difference</h3>N/A</div></div></div></div><div class="diff-entry"><h2>64/100.png</h2><div class="comparison-container"><div class="image-container"><div class="stats-container"><div class="stat-item"><div class="stat-label">Different pixels</div><div class="stat-value warning">3 (0.7%)</div></div><div class="stat-item"><div class="stat-label">Color distance</div><div class="stat-value ">0.024</div></div><div class="stat-item"><div class="stat-label">Avg. color distance</div><div class="stat-value ">0.0001</div></div><div class="stat-item"><div class="stat-label">Background</div><div class="stat-value ">#000004<div class="color-square" style="background-color: #000004"></div></div></div></div><div class="image-box"><h3>Left image</h3><img class="zoom" src="result/out/64/100.png" height="64" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Right image</h3><img class="zoom" src="result/blessed/64/100.png" height="64" onclick="openImageDialog(this, true)"></div><div class="image-box"><h3>Difference</h3><img id="img-diff-15-0" class="zoom" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABV0lEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1U+A+f8LAeb/ggCSfy0EmP+/EGD+Nwkg+Y+CAPP/FwLM/18IMP9/IcD8/4UA8/8XAsz/Xwgw/38hwPz/hQDz/xcCzP9fCDD/fyHA/P+FAPP/FwLM/18IMP9/IcD8/4UA8/8XAsz/Xwgw/38hwPz/hQDz/xcCzP9fCDD/fyHA/P+FAPP/FwLM/18IMP9/IcD8/4UA8/8XAsz/Xwgw/38hwPz/hQDzQAEk/18gwPz/hQDz/xcCzP9fCDD/fyHA/P+FAPP/FwLM/18IMP9/IcD8/4UA8/8XAsz/Xwgw/38hwPz/hQDz/xcCzP9fCDD/fyHA/P+FAPP/FwLM/18IMP9/IcD8/4UA8/8XAsz/Xwgw/38hwPz/hQDz/xcCzP9f/CPiekMB2Exx4QAAAABJRU5ErkJggg==" height="64" onclick="openImageDialog(this, true)"><img id="img-diff-15-1" style="display: none" class="zoom" src="data:image/png;base64,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" height="64" onclick="openImageDialog(this, true)"><div class="tabs"><div id="tab-diff-15-0" class="tab active">RedGreen</div><div id="tab-diff-15-1" class="tab">Overlay</div></div><script>document.getElementById('tab-diff-15-0').addEventListener('click', () => switchDiffTab(15, 0, 2));document.getElementById('tab-diff-15-1').addEventListener('click', () => switchDiffTab(15, 1, 2));</script></div></div></div></div></body></html>

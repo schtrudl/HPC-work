@@ -1,0 +1,60 @@
+\begin{table}[H]
+\centering
+%\resizebox{\linewidth}{!}{
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+ & \textbf{128} & \textbf{256} & \textbf{512} & \textbf{1024} & \textbf{2048} & \textbf{4096} \\
+\hline
+\textbf{baseline} 
+& 1.235
+& 4.176
+& 16.902
+& 67.6
+& 271.26
+& 1168.6 \\
+
+\textbf{fast math} 
+& 0.634 (1.95x)
+& 2.521 (1.657x)
+& 10.147 (1.666x)
+& 40.53 (1.669x)
+& 162.51 (1.6692x)
+& 662.1 (1.765x) \\
+
+\textbf{timings basic row 1 64} 
+& 0.0283 (43.7x)
+& 0.0928 (45.0x)
+& 0.30 (57x)
+& 0.89 (76x)
+& 3.28 (82.6x)
+& 13.25 (88.2x) \\
+
+\textbf{timings basic row 2 32} 
+& 0.129 (9.6x)
+& 0.132 (32x)
+& 0.29 (58x)
+& 0.75 (90x)
+& 2.74 (99.0x)
+& 10.90 (107.2x) \\
+
+\textbf{timings mpt 1 64} 
+& 0.011 (109x)
+& 0.0236 (177.0x)
+& 0.0842 (200.7x)
+& 0.278 (243x)
+& 0.82 (331x)
+& 2.98 (393x) \\
+
+\textbf{timings mpt 2 32} 
+& 0.025 (50x)
+& 0.035 (119x)
+& 0.086 (197x)
+& 0.26 (262x)
+& 1.138 (238.3x)
+& 3.1 (373x) \\
+
+\hline
+\end{tabular}
+%}
+\caption{Time in seconds and speedup relative to baseline (first file). Precision follows stddev.}
+\end{table}

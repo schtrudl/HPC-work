@@ -1,0 +1,28 @@
+\begin{table}[H]
+\centering
+%\resizebox{\linewidth}{!}{
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+ & \textbf{128} & \textbf{256} & \textbf{512} & \textbf{1024} & \textbf{2048} & \textbf{4096} \\
+\hline
+\textbf{timings basic row 1 64} 
+& 0.0283
+& 0.0928
+& 0.30
+& 0.89
+& 3.28
+& 13.25 \\
+
+\textbf{timings mp2 1 64} 
+& 0.0461 (0.614x)
+& 0.1645 (0.564x)
+& 0.48 (0.61x)
+& 1.65 (0.54x)
+& 6.28 (0.523x)
+& 25.05 (0.529x) \\
+
+\hline
+\end{tabular}
+%}
+\caption{Time in seconds and speedup relative to baseline (first file). Precision follows stddev.}
+\end{table}
